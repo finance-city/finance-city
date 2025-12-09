@@ -1,0 +1,7 @@
+websocket-client
+websockets
+redis
+requests
+python-dotenv
+pandas
+pycryptodome
