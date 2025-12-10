@@ -1,0 +1,14 @@
+stock_code,name,market,currency,active
+005930,삼성전자,KRX,KRW,true
+000660,SK하이닉스,KRX,KRW,true
+035420,NAVER,KRX,KRW,true
+035720,카카오,KRX,KRW,true
+051910,LG화학,KRX,KRW,true
+373220,LG에너지솔루션,KRX,KRW,false
+207940,삼성바이오로직스,KRX,KRW,false
+AAPL,Apple Inc.,NASDAQ,USD,true
+MSFT,Microsoft Corp.,NASDAQ,USD,true
+TSLA,Tesla Inc.,NASDAQ,USD,true
+GOOGL,Alphabet Inc.,NASDAQ,USD,true
+AMZN,Amazon.com Inc.,NASDAQ,USD,false
+JPM,JPMorgan Chase & Co.,NYSE,USD,false
