@@ -20,25 +20,51 @@ config/
 
 #### 주요 클래스
 
-- **`BaseConfig`**: 모든 설정의 기본 클래스
-- **`EnvironmentConfig`**: 환경별 설정 (development, production 등)
+- **`AppConfig`**: 애플리케이션 전체 설정 (KIS API, Redis, 파일 경로 등)
+- **`get_app_config()`**: 싱글톤 설정 인스턴스 반환
+- **`reload_config()`**: 설정 강제 재로드
 
-#### 특징
+#### 주요 설정 항목
 
-- 환경변수 자동 로딩
-- 설정 유효성 검증
-- 기본값 제공
-- 타입 안전성
+**KIS API 설정**
+- kis_app_key, kis_app_secret: API 인증 정보
+- kis_ws_url, kis_api_base_url: API 엔드포인트
+
+**Redis 설정** 
+- redis_host, redis_port: Redis 서버 정보
+- redis_channel: 실시간 데이터 채널
+
+**애플리케이션 설정**
+- environment: 실행 환경 (development/staging/production)
+- debug_mode: 디버그 모드 활성화
+- revoke_token_on_exit: 종료 시 토큰 해제 여부
+
+**파일 경로**
+- stocks_csv_path: 종목 목록 CSV 파일 경로
 
 #### 사용 예시
 
 ```python
-from config import BaseConfig
+from config import get_app_config
 
-class MyConfig(BaseConfig):
-    def __init__(self):
-        super().__init__()
-        self.my_setting = self.get_env("MY_SETTING", "default_value")
+# 환경변수에서 설정 자동 로드
+config = get_app_config()
+
+# 설정 접근
+print(f"API URL: {config.kis_api_base_url}")
+print(f"Redis: {config.redis_host}:{config.redis_port}")
+print(f"Environment: {config.environment}")
+
+# 환경 체크
+if config.is_development():
+    print("개발 모드입니다")
+
+# 특정 .env 파일 사용
+config = get_app_config("/path/to/custom.env")
+
+# 설정 재로드
+from config import reload_config
+config = reload_config()
 ```
 
 ### Trading Config (trading_config.py)
@@ -47,9 +73,11 @@ class MyConfig(BaseConfig):
 
 #### 주요 클래스
 
+- **`TradingConfig`**: 전체 거래 설정 통합
 - **`MarketConfig`**: 시장별 설정 (시간대, 거래시간 등)
 - **`ExchangeMapping`**: 거래소 코드 매핑 (US 주식용)
-- **`TradingConfig`**: 전체 거래 설정 통합
+- **`MarketType`**: 시장 타입 열거형 (KRX_REGULAR, KRX_AFTER, US_REGULAR)
+- **`get_trading_config()`**: 싱글톤 거래 설정 인스턴스 반환
 
 #### 설정 항목들
 
@@ -91,12 +119,24 @@ print(f"NASDAQ 야간거래 코드: {nasdaq_night}")  # NAS
 ### 계층적 설정 관리
 
 ```python
-TradingConfig
+AppConfig                    # 애플리케이션 전체 설정
 ├── KIS API 설정
 │   ├── kis_app_key
 │   ├── kis_app_secret
 │   ├── kis_api_base_url
 │   └── kis_ws_url
+├── Redis 설정
+│   ├── redis_host
+│   ├── redis_port
+│   └── redis_channel
+├── 애플리케이션 설정
+│   ├── environment
+│   ├── debug_mode
+│   └── revoke_token_on_exit
+└── 파일 경로
+    └── stocks_csv_path
+
+TradingConfig               # 거래 전용 설정
 ├── 시장별 설정
 │   ├── KRX
 │   │   ├── 정규장 시간
@@ -112,56 +152,99 @@ TradingConfig
 
 ### 환경별 설정
 
-```python
-# development 환경
+```bash
+# .env 파일 예시
+# KIS API 설정
+KIS_APP_KEY=your_app_key_here
+KIS_APP_SECRET=your_app_secret_here
+KIS_API_BASE_URL=https://openapi.koreainvestment.com:9443  # 실제투자
+KIS_WS_URL=ws://ops.koreainvestment.com:21000
+
+# Redis 설정  
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_CHANNEL=stock:realtime
+
+# 애플리케이션 설정
+ENVIRONMENT=production
+DEBUG=false
+REVOKE_TOKEN_ON_EXIT=true
+```
+
+```bash
+# development 환경 예시
 ENVIRONMENT=development
 KIS_API_BASE_URL=https://openapivts.koreainvestment.com:29443  # 모의투자
-
-# production 환경  
-ENVIRONMENT=production
-KIS_API_BASE_URL=https://openapi.koreainvestment.com:9443     # 실제투자
+DEBUG=true
+REVOKE_TOKEN_ON_EXIT=false
 ```
 
 ## 📋 사용 방법
 
-### 1. 기본 설정 사용
+### 1. 애플리케이션 설정 사용
 
 ```python
-from config import get_trading_config
+from config import get_app_config
 
-# 싱글톤 인스턴스 가져오기
-config = get_trading_config()
+# 싱글톤 인스턴스 가져오기 
+config = get_app_config()
 
 # API 설정 접근
 api_url = config.kis_api_base_url
 ws_url = config.kis_ws_url
+app_key = config.kis_app_key
+
+# Redis 설정 접근
+redis_host = config.redis_host
+redis_port = config.redis_port
+
+# 환경 확인
+if config.is_production():
+    print("프로덕션 모드에서 실행 중")
 ```
 
-### 2. 환경변수와 함께 사용
+### 2. 거래 설정 사용
+
+```python
+from config import get_trading_config
+
+# 거래 설정 인스턴스 가져오기
+trading_config = get_trading_config()
+
+# 시장 설정 접근
+krx_config = trading_config.get_market_config("KRX")
+print(f"KRX 정규장: {krx_config.regular_hours}")
+
+# 거래소 코드 가져오기
+nasdaq_night = trading_config.get_us_exchange_code("NASDAQ", is_day_trading=False)
+print(f"NASDAQ 야간거래 코드: {nasdaq_night}")  # NAS
+```
+
+### 3. 환경변수와 함께 사용
 
 ```bash
 # .env 파일
 KIS_APP_KEY=your_app_key_here
 KIS_APP_SECRET=your_secret_here
 ENVIRONMENT=development
+REDIS_HOST=redis.example.com
+REDIS_PORT=6379
 ```
 
 ```python
-import os
-from dotenv import load_dotenv
-from config import TradingConfig
+from config import get_app_config, reload_config
 
-# 환경변수 로딩
-load_dotenv()
+# 자동으로 .env 파일에서 로드
+config = get_app_config()
 
-# 설정 생성
-config = TradingConfig.create_default(
-    kis_app_key=os.getenv("KIS_APP_KEY", ""),
-    kis_app_secret=os.getenv("KIS_APP_SECRET", "")
-)
+# 특정 환경파일 사용
+config = get_app_config("/path/to/staging.env")
+
+# 설정 재로드 (환경변수 변경 후)
+config = reload_config()
 ```
 
-### 3. 커스텀 설정
+### 4. 커스텀 설정
 
 ```python
 from config import TradingConfig, MarketConfig
@@ -176,8 +259,8 @@ custom_market = MarketConfig(
 )
 
 # 기존 설정에 추가
-config = TradingConfig.create_default()
-config.markets["CRYPTO"] = custom_market
+trading_config = TradingConfig.create_default()
+trading_config.markets["CRYPTO"] = custom_market
 ```
 
 ## 🔧 설정 확장
@@ -220,25 +303,32 @@ def add_new_exchange(config: TradingConfig):
 
 ### 자동 검증
 
+설정 로드 시 자동으로 유효성을 검증합니다.
+
 ```python
-def validate_config(config: TradingConfig) -> bool:
-    """설정 유효성 검증"""
-    
-    # API 키 검증
-    if not config.kis_app_key or not config.kis_app_secret:
-        raise ValueError("KIS API credentials are required")
-    
-    # URL 검증
-    if not config.kis_api_base_url.startswith(('http://', 'https://')):
-        raise ValueError("Invalid API base URL")
-    
-    # 시장 설정 검증
-    for market_name, market_config in config.markets.items():
-        if not market_config.tr_ids:
-            raise ValueError(f"No TR_IDs defined for market: {market_name}")
-    
-    return True
+from config import get_app_config, AppConfig
+
+try:
+    config = get_app_config()
+    print("설정이 유효합니다")
+except ValueError as e:
+    print(f"설정 오류: {e}")
+
+# 수동 검증
+config = AppConfig.from_environment()
+try:
+    config.validate()
+    print("검증 성공")
+except ValueError as e:
+    print(f"검증 실패: {e}")
 ```
+
+#### 검증 항목
+
+- **필수 필드**: KIS API 키와 시크릿 존재 여부
+- **URL 형식**: API URL과 WebSocket URL 형식 검증
+- **포트 범위**: Redis 포트 유효 범위 (1-65535)
+- **환경값**: 유효한 환경값 (development/staging/production)
 
 ## 🧪 테스트
 
@@ -246,9 +336,37 @@ def validate_config(config: TradingConfig) -> bool:
 
 ```python
 import pytest
-from config import TradingConfig, MarketConfig
+from config import get_app_config, get_trading_config, AppConfig, TradingConfig
+
+def test_app_config_creation():
+    """애플리케이션 설정 생성 테스트"""
+    config = AppConfig.from_environment()
+    
+    assert hasattr(config, 'kis_app_key')
+    assert hasattr(config, 'redis_host')
+    assert config.redis_port > 0
+
+def test_app_config_validation():
+    """설정 검증 테스트"""
+    config = AppConfig(
+        kis_app_key="test_key",
+        kis_app_secret="test_secret", 
+        kis_ws_url="ws://test.com",
+        kis_api_base_url="https://test.com",
+        redis_host="localhost",
+        redis_port=6379,
+        redis_channel="test",
+        environment="development",
+        revoke_token_on_exit=False,
+        debug_mode=True,
+        stocks_csv_path="/test/stocks.csv"
+    )
+    
+    # 검증 성공해야 함
+    config.validate()
 
 def test_trading_config_creation():
+    """거래 설정 생성 테스트"""
     config = TradingConfig.create_default(
         kis_app_key="test_key",
         kis_app_secret="test_secret"
@@ -258,18 +376,8 @@ def test_trading_config_creation():
     assert "KRX" in config.markets
     assert "US" in config.markets
 
-def test_market_config():
-    krx_config = MarketConfig(
-        name="KRX",
-        timezone="Asia/Seoul",
-        regular_hours=(time(9, 0), time(15, 30)),
-        tr_ids={"regular": "H0STCNT0"}
-    )
-    
-    assert krx_config.name == "KRX"
-    assert krx_config.tr_ids["regular"] == "H0STCNT0"
-
 def test_exchange_mapping():
+    """거래소 매핑 테스트"""
     config = TradingConfig.create_default()
     
     nasdaq_night = config.get_us_exchange_code("NASDAQ", is_day_trading=False)
@@ -277,12 +385,21 @@ def test_exchange_mapping():
     
     assert nasdaq_night == "NAS"
     assert nasdaq_day == "BAQ"
+
+def test_singleton_behavior():
+    """싱글톤 동작 테스트"""
+    config1 = get_app_config()
+    config2 = get_app_config()
+    
+    # 같은 인스턴스여야 함
+    assert config1 is config2
 ```
 
 ## 🔗 의존성
 
 - **Python**: 3.8+
-- **외부 라이브러리**: 없음 (표준 라이브러리만 사용)
+- **외부 라이브러리**: 
+  - `python-dotenv`: 환경변수 파일 로딩
 
 ## 📚 관련 문서
 

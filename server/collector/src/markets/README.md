@@ -27,32 +27,46 @@ class BaseMarketProvider(IMarketProvider):
     
     # 필수 구현 메서드
     @abstractmethod
-    def get_market_name() -> str
-    def get_tr_id() -> str
     def parse_stock_code(code: str) -> Optional[str]
     def format_stock_code(code: str, is_night_trading: bool) -> str
     
     # 공통 기능 제공
+    def get_market_name() -> str
+    def get_tr_id() -> str
     def get_session_config() -> MarketSession
     def get_field_config() -> FieldConfig
     def is_market_open(current_time: datetime) -> bool
     def validate_stock_code_format(code: str, pattern: str) -> bool
+    def get_exchange_code(exchange_name: str) -> Optional[str]
+    def get_supported_exchanges() -> List[str]
+    def is_trading_hours(current_time: Optional[datetime]) -> bool
+    def get_market_config() -> MarketConfig
 ```
 
 #### 설정 관리
 
 ```python
 # 각 프로바이더는 고유한 MarketConfig를 가집니다
+# KRX 예시
 config = MarketConfig(
     name="KRX",
-    timezone="Asia/Seoul",
-    sessions={
-        "regular": MarketSession("09:00", "15:30"),
-        "after_hours": MarketSession("16:00", "18:00")
-    },
-    tr_ids={
-        "regular": "H0STCNT0",
-        "after_hours": "H0NXCNT0"
+    tr_id="H0STCNT0",
+    session=MarketSession(
+        start_time="09:00",
+        end_time="15:30",
+        timezone="Asia/Seoul"
+    ),
+    fields=FieldConfig(
+        fields={
+            "stock_code": "0",
+            "stock_name": "1", 
+            "current_price": "2"
+        },
+        required_fields=["stock_code", "stock_name", "current_price"]
+    ),
+    exchange_codes={
+        "KOSPI": "J",
+        "KOSDAQ": "Q"
     }
 )
 ```
@@ -62,6 +76,10 @@ config = MarketConfig(
 한국 거래소(KRX) 전용 구현체입니다.
 
 #### 지원 기능
+
+**설정 팩토리 메서드**
+- `create_default_config()`: 정규장 설정 생성
+- `create_after_hours_config()`: 시간외 거래 설정 생성
 
 **거래 세션**
 - 정규장: 09:00-15:30 (H0STCNT0)
@@ -96,9 +114,15 @@ invalid_code = krx_regular.parse_stock_code("AAPL")  # None
 is_kospi = krx_regular.is_kospi_stock("005930")     # True
 is_kosdaq = krx_regular.is_kosdaq_stock("035420")   # True
 
-# 동적 세션 전환
-krx_regular.switch_to_after_hours()
-print(krx_regular.get_tr_id())  # "H0NXCNT0"
+# 설정 정보 접근
+market_config = krx_regular.get_market_config()
+print(f"TR ID: {krx_regular.get_tr_id()}")
+print(f"시간외 모드: {krx_regular.is_after_hours_mode()}")
+
+# 거래시간 확인
+from datetime import datetime
+now = datetime.now()
+is_open = krx_regular.is_trading_hours(now)
 ```
 
 ### US Market Provider (us.py)
@@ -107,19 +131,20 @@ print(krx_regular.get_tr_id())  # "H0NXCNT0"
 
 #### 고급 기능
 
-**써머타임 자동 계산**
-- DST 기간 자동 감지 (3월 둘째 일요일 ~ 11월 첫째 일요일)
-- 한국 시간 기준 미국 시장 시간 계산
-
-**거래 세션 관리**
-- 야간거래: 한국 시장 시간대 (D + 거래소코드)
-- 주간거래: 미국 시장 시간대 (R + 거래소코드)
-- 자동 세션 감지
+**거래소별 코드 매핑**
+- NASDAQ: 야간(NAS), 주간(BAQ) 
+- NYSE: 야간(NYS), 주간(BAY)
+- AMEX: 야간(AMS), 주간(BAA)
 
 **종목 코드 변환**
 - 심볼 → KIS 포맷 변환 (AAPL → DNASAAPL)
 - KIS 포맷 → 심볼 파싱 (DNASAAPL → AAPL)
-- 거래소별 코드 생성
+- 자동 거래소 감지 및 세션 구분
+
+**24시간 거래 지원**
+- KIS API를 통해 24시간 접근 가능
+- 실시간 세션 타입 감지
+- 야간/주간 거래 자동 처리
 
 #### 거래소별 코드 매핑
 
@@ -133,34 +158,33 @@ print(krx_regular.get_tr_id())  # "H0NXCNT0"
 
 ```python
 from markets import USMarketProvider
-from datetime import datetime
 
 us_provider = USMarketProvider()
 
-# 써머타임 확인
-is_dst = us_provider.is_dst_period()
-print(f"현재 DST 여부: {is_dst}")
+# 종목 코드 파싱 (심볼 추출)
+symbol = us_provider.parse_stock_code("AAPL")      # "AAPL"
+symbol2 = us_provider.parse_stock_code("DNASAAPL") # "AAPL"
 
-# 거래 세션 정보
-session_info = us_provider.get_trading_session_info()
-print(f"세션 타입: {session_info['session_type']}")
-print(f"시간대: {session_info['timezone']}")
+# 코드 포맷팅 (야간/주간 구분)
+night_code = us_provider.format_stock_code("AAPL", is_night_trading=True)
+day_code = us_provider.format_stock_code("AAPL", is_night_trading=False)
+print(f"야간: {night_code}")  # "DNASAAPL" 
+print(f"주간: {day_code}")    # "RBAQAAPL"
 
-# 종목 코드 변환
-# 현재 시간 기준 자동 세션 결정
-formatted_aapl = us_provider.format_stock_code_with_session("AAPL")
-print(f"AAPL 포맷: {formatted_aapl}")  # DNASAAPL 또는 RBAQAAPL
+# KIS 포맷 코드 파싱
+result = us_provider.parse_kis_formatted_code("DNASAAPL")
+if result:
+    symbol, exchange, session = result
+    print(f"심볼: {symbol}, 거래소: {exchange}, 세션: {session}")
+    # 심볼: AAPL, 거래소: NASDAQ, 세션: night
 
-# 수동 세션 지정
-night_trading = us_provider.format_stock_code("MSFT", is_night_trading=True)
-day_trading = us_provider.format_stock_code("MSFT", is_night_trading=False)
-print(f"MSFT 야간: {night_trading}")  # DNASMSFT
-print(f"MSFT 주간: {day_trading}")    # RBAQMSFT
+# 거래소 코드 확인
+nasdaq_night = us_provider.get_exchange_code("NASDAQ_NIGHT")  # "NAS"
+nyse_day = us_provider.get_exchange_code("NYSE_DAY")          # "BAY"
 
-# KIS 코드 파싱
-symbol, exchange, session = us_provider.parse_kis_formatted_code("DNASAAPL")
-print(f"심볼: {symbol}, 거래소: {exchange}, 세션: {session}")
-# 심볼: AAPL, 거래소: NASDAQ, 세션: night
+# 지원 거래소 목록
+exchanges = us_provider.get_supported_exchanges()
+print(exchanges)  # ['NASDAQ_NIGHT', 'NYSE_NIGHT', 'AMEX_NIGHT', ...]
 ```
 
 ## 🔧 시장 추가 가이드
@@ -171,7 +195,7 @@ print(f"심볼: {symbol}, 거래소: {exchange}, 세션: {session}")
 
 ```python
 from .base import BaseMarketProvider
-from ..core import MarketConfig, MarketSession, FieldConfig
+from core import MarketConfig, MarketSession, FieldConfig
 
 class CryptoMarketProvider(BaseMarketProvider):
     @classmethod
@@ -199,6 +223,9 @@ class CryptoMarketProvider(BaseMarketProvider):
             fields=fields
         )
     
+    def __init__(self):
+        super().__init__(self.create_default_config())
+    
     def parse_stock_code(self, code: str) -> Optional[str]:
         # 암호화폐 심볼 검증 로직
         if self.validate_stock_code_format(code, r'^[A-Z]{3,10}$'):
@@ -207,7 +234,10 @@ class CryptoMarketProvider(BaseMarketProvider):
     
     def format_stock_code(self, code: str, is_night_trading: bool = False) -> str:
         # 암호화폐는 24시간이므로 야간거래 구분 불필요
-        return self.parse_stock_code(code) or code
+        parsed_code = self.parse_stock_code(code)
+        if parsed_code is None:
+            raise ValueError(f"Invalid crypto symbol: {code}")
+        return parsed_code
 ```
 
 2. **`__init__.py`에 추가**
@@ -251,13 +281,26 @@ def test_krx_provider():
     assert krx.parse_stock_code("005930") == "005930"
     assert krx.parse_stock_code("AAPL") is None
     
-    # 거래소 구분
+    # 거래소 구분  
     assert krx.is_kospi_stock("005930") == True
     assert krx.is_kosdaq_stock("035420") == True
     
     # 설정 확인
     assert krx.get_market_name() == "KRX"
     assert krx.get_tr_id() == "H0STCNT0"
+    
+    # 시간외 모드 테스트
+    krx_after = KRXMarketProvider(use_after_hours=True)
+    assert krx_after.get_tr_id() == "H0NXCNT0"
+    assert krx_after.is_after_hours_mode() == True
+
+def test_krx_config():
+    # 설정 팩토리 메서드 테스트
+    regular_config = KRXMarketProvider.create_default_config()
+    after_config = KRXMarketProvider.create_after_hours_config()
+    
+    assert regular_config.tr_id == "H0STCNT0"
+    assert after_config.tr_id == "H0NXCNT0"
 ```
 
 ### US 테스트
@@ -266,14 +309,30 @@ def test_krx_provider():
 def test_us_provider():
     us = USMarketProvider()
     
-    # 종목 코드 변환
-    assert "AAPL" in us.format_stock_code("AAPL")
+    # 종목 코드 파싱
+    assert us.parse_stock_code("AAPL") == "AAPL"
+    assert us.parse_stock_code("DNASAAPL") == "AAPL"
+    
+    # 코드 포맷팅
+    night_code = us.format_stock_code("AAPL", is_night_trading=True)
+    day_code = us.format_stock_code("AAPL", is_night_trading=False)
+    
+    assert "AAPL" in night_code
+    assert "AAPL" in day_code
+    assert night_code.startswith("D")  # 야간거래
+    assert day_code.startswith("R")    # 주간거래
     
     # KIS 코드 파싱
     result = us.parse_kis_formatted_code("DNASAAPL")
-    assert result[0] == "AAPL"
-    assert result[1] == "NASDAQ"
-    assert result[2] == "night"
+    if result:
+        symbol, exchange, session = result
+        assert symbol == "AAPL"
+        assert exchange == "NASDAQ"
+        assert session == "night"
+    
+    # 거래소 코드 확인
+    assert us.get_exchange_code("NASDAQ_NIGHT") == "NAS"
+    assert us.get_exchange_code("NYSE_DAY") == "BAY"
     
     # 설정 확인
     assert us.get_market_name() == "US"

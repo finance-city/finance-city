@@ -6,12 +6,14 @@
 
 ```
 services/
-├── __init__.py           # 서비스 모듈 익스포트
-├── auth_service.py       # KIS API 인증 및 토큰 관리
-├── stock_service.py      # 종목 관리 및 필터링
-├── request_builder.py    # API 요청 생성 (미구현)
-├── time_calculator.py    # 시간 계산 서비스 (미구현)
-└── README.md            # 이 파일
+├── __init__.py                     # 서비스 모듈 익스포트
+├── auth_service.py                 # KIS API 인증 및 토큰 관리
+├── stock_service.py                # 종목 관리 및 필터링
+├── request_builder.py              # API 요청 생성
+├── time_calculator.py              # 시간 계산 서비스
+├── market_manager_service.py       # 시장 관리 서비스
+├── websocket_manager_service.py    # WebSocket 연결 관리
+└── README.md                       # 이 파일
 ```
 
 ## 🏗️ 구현된 서비스
@@ -137,20 +139,18 @@ class StockInfo:
     exchange: Optional[str] = None  # 거래소 (NASDAQ, NYSE, AMEX)
 ```
 
-## 📋 미구현 서비스
-
 ### RequestBuilderService (request_builder.py)
 
 KIS API 요청 패킷을 동적으로 생성하는 서비스입니다.
 
-#### 계획된 기능
+#### 핵심 기능
 
 - **동적 TR_ID 선택**: 시장별로 적절한 TR_ID 자동 선택
 - **종목 코드 변환**: 시장별 종목 코드 포맷팅
 - **구독/구독취소**: WebSocket 구독 요청 생성
 - **세션 기반 포맷팅**: 미국 주식의 야간/주간 거래 자동 처리
 
-#### 요청 패킷 구조 (예상)
+#### 요청 패킷 구조
 
 ```json
 {
@@ -173,12 +173,38 @@ KIS API 요청 패킷을 동적으로 생성하는 서비스입니다.
 
 시장 시간 관련 계산을 담당하는 서비스입니다.
 
-#### 계획된 기능
+#### 핵심 기능
 
 - **DST 계산**: 미국 써머타임 자동 감지
 - **시장 시간 변환**: 시장별 시간대 변환
 - **거래시간 확인**: 현재 시간이 거래시간인지 판단
 - **세션 유형 결정**: 미국 주식의 야간/주간 거래 구분
+
+### MarketManagerService (market_manager_service.py)
+
+다중 시장을 관리하는 서비스입니다.
+
+#### 핵심 기능
+
+- **시장별 제공자 관리**: KRX, US 시장 제공자 관리
+- **종목 시장 분류**: 종목을 시장별로 자동 분류
+- **거래 세션 관리**: 시장별 거래 시간 및 세션 관리
+- **시장 상태 확인**: 실시간 시장 개장/폐장 상태 확인
+
+### WebSocketManagerService (websocket_manager_service.py)
+
+KIS API WebSocket 연결을 관리하는 서비스입니다.
+
+#### 핵심 기능
+
+- **WebSocket 연결 관리**: 실시간 데이터 수신용 WebSocket 연결
+- **구독 관리**: 종목별 실시간 데이터 구독/구독취소
+- **데이터 파싱**: 실시간 데이터 파싱 및 전달
+- **연결 복구**: 연결 끊김 시 자동 재연결
+
+## 📋 미구현 서비스
+
+현재 모든 핵심 서비스가 구현되었습니다.
 
 ## ⚠️ 주의사항
 
@@ -256,9 +282,12 @@ def test_market_filtering():
 - `redis`: 토큰 캐싱 (선택적)
 - `requests`: HTTP API 호출
 - `pandas`: CSV 데이터 처리 (StockService)
+- `websockets`: WebSocket 연결 관리
+- `pytz`: 시간대 변환 및 계산
 
 ## 📚 관련 문서
 
 - [Core README](../core/README.md) - 인터페이스 및 데이터 모델
 - [Config README](../config/README.md) - 설정 관리
 - [Data README](../data/README.md) - 데이터 처리 및 WebSocket
+- [Markets README](../markets/README.md) - 시장별 제공자 구현

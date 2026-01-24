@@ -53,6 +53,8 @@ auth_service = container.get(IAuthManager)
 - **`MarketConfig`**: 시장 전체 설정
 - **`AuthCredentials`**: API 인증 자격증명
 - **`SystemStatus`**: 시스템 상태 정보
+- **`RequestInfo`**: API 요청 정보 (TR_ID, 종목 목록, 요청 타입)
+- **`ErrorInfo`**: 에러 정보 (에러 코드, 메시지, 컨텍스트)
 
 #### 열거형 타입들
 - **`MarketType`**: 지원 시장 (KRX, US, CRYPTO)
@@ -60,7 +62,7 @@ auth_service = container.get(IAuthManager)
 
 #### 사용 예시
 ```python
-from core import StockInfo, MarketData, MarketType, TradingStatus
+from core import StockInfo, MarketData, MarketType, TradingStatus, RequestInfo, ErrorInfo
 
 # 종목 정보 생성
 stock = StockInfo(
@@ -73,6 +75,20 @@ stock = StockInfo(
 # 활성 상태 확인
 if stock.is_active():
     print(f"Active stock: {stock.get_display_name()}")
+
+# 요청 정보 생성
+request_info = RequestInfo(
+    tr_id="H0STCNT0",
+    stocks=[stock],
+    request_type="subscribe"
+)
+
+# 에러 정보 생성
+error_info = ErrorInfo(
+    error_code="INVALID_STOCK",
+    error_message="Stock code not found",
+    context={"stock_code": "INVALID"}
+)
 ```
 
 ### Interfaces (interfaces.py)
@@ -213,6 +229,27 @@ def test_stock_info():
     
     assert stock.is_active() == True
     assert stock.get_display_name() == "AAPL (Apple Inc.)"
+
+def test_request_info():
+    stock = StockInfo(code="005930", name="삼성전자", market="KRX", status="active")
+    request = RequestInfo(
+        tr_id="H0STCNT0",
+        stocks=[stock],
+        request_type="subscribe"
+    )
+    
+    assert request.get_stock_codes() == ["005930"]
+    assert request.request_type == "subscribe"
+
+def test_error_info():
+    error = ErrorInfo(
+        error_code="TEST_ERROR",
+        error_message="Test error message",
+        context={"test": "value"}
+    )
+    
+    assert str(error) == "[TEST_ERROR] Test error message"
+    assert error.context["test"] == "value"
 
 # 예외 테스트 예시
 def test_custom_exceptions():
