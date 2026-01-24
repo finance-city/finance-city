@@ -1,0 +1,14 @@
+stock_code,name,market,status,exchange
+005930,삼성전자,KRX,active,
+000660,SK하이닉스,KRX,active,
+035420,NAVER,KRX,active,
+035720,카카오,KRX,active,
+051910,LG화학,KRX,active,
+373220,LG에너지솔루션,KRX,inactive,
+207940,삼성바이오로직스,KRX,inactive,
+AAPL,Apple Inc.,US,active,NASDAQ
+MSFT,Microsoft Corp.,US,active,NASDAQ
+TSLA,Tesla Inc.,US,inactive,NASDAQ
+GOOGL,Alphabet Inc.,US,active,NASDAQ
+AMZN,Amazon.com Inc.,US,active,NASDAQ
+NVDA,NVIDIA Corp.,US,active,NASDAQ
