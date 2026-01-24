@@ -21,3 +21,10 @@ build/
 bin/
 *.exe
 *.o
+
+# Legacy files
+**/backup/
+
+
+# Local Test Files
+**/test*
