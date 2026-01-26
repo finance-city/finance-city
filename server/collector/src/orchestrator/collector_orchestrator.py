@@ -211,10 +211,11 @@ class CollectorOrchestrator:
                 
                 self.redis_client.publish(channel, message)
                 
-                # 간단한 로깅
+                # 간단한 로깅 (통일된 필드명 사용)
                 tr_id = data.get("tr_id", "UNKNOWN")
-                stock_code = data.get("stock_code", "UNKNOWN")
-                logging.debug(f"데이터 발행: {tr_id}[{stock_code}] → {channel}")
+                # 통일된 데이터 구조에서 종목코드 가져오기
+                code = data.get("data", {}).get("code", data.get("stock_code", "UNKNOWN"))
+                logging.debug(f"데이터 발행: {tr_id}[{code}] → {channel}")
                 
         except Exception as e:
             logging.error(f"실시간 데이터 처리 실패: {e}")
