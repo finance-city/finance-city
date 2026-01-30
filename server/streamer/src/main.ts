@@ -1,50 +1,30 @@
-// main.ts
+// main.ts - 애플리케이션 진입점
 
-import { RedisBroker } from './adapters/RedisBroker.js';
-import type { RedisStockMessage } from './types/index.js';
+import { AppService } from './services/app.service.js';
+import { LoggerService, LogLevel } from './services/logger.service.js';
+import { loadConfig } from './config/app.config.js';
 
+/**
+ * 애플리케이션 진입점
+ * 단순하고 깔끔하게 AppService에 위임
+ */
 async function main(): Promise<void> {
-    console.log("Streamer server is starting...");
+    // 설정 로드
+    const config = loadConfig();
     
-    // Redis Broker 인스턴스 생성
-    const redisBroker = new RedisBroker();
+    // 환경별 로그 레벨 설정
+    const logLevel = process.env.NODE_ENV === 'development' ? LogLevel.DEBUG : LogLevel.INFO;
+    const logger = LoggerService.create('Main', logLevel);
+
+    logger.info('🚀 Finance City Streamer starting...');
+
+    // AppService 생성 및 시작
+    const app = new AppService(config);
     
     try {
-        // Redis 서버에 연결
-        await redisBroker.connect();
-        
-        // 주식 데이터 채널 구독
-        const channel = 'stock:realtime';
-        
-        await redisBroker.subscribe(channel, (message: RedisStockMessage) => {
-            console.log('Received stock data:', {
-                stock_code: message.stock_code,
-                current_price: message.current_price,
-                timestamp: message.timestamp,
-                tr_id: message.tr_id,
-                data: message.data,
-                // 전체 메시지 구조 확인용
-                // fullMessage: message
-            });
-        });
-        
-        console.log(`✅ Streamer server is running and listening for messages on channel: ${channel}`);
-        
-        // 프로세스 종료 시 정리
-        process.on('SIGINT', async () => {
-            console.log('\nShutting down gracefully...');
-            await redisBroker.disconnect();
-            process.exit(0);
-        });
-        
-        process.on('SIGTERM', async () => {
-            console.log('\nShutting down gracefully...');
-            await redisBroker.disconnect();
-            process.exit(0);
-        });
-        
+        await app.start();
     } catch (error) {
-        console.error('❌ Failed to start streamer server:', error);
+        logger.error('Failed to start application', error as Error);
         process.exit(1);
     }
 }

@@ -35,11 +35,18 @@
     // Recommended Options
     "strict": true,
     "jsx": "react-jsx",
-    "allowImportingTsExtensions": true,
-    "noEmit": true,
     "isolatedModules": true,
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
-  }
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests",
+    "scripts"
+  ]
 }

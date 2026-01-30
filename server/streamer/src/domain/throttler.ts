@@ -1,7 +1,6 @@
-// core/throttler.ts 
+// domain/throttler.ts - 배치 처리 도메인 로직
 
-import type { ClientStockData } from '../types/index.js';
-import type { IThrottler } from './interfaces.js';
+import type { ClientStockData, IThrottler } from '../types/index.js';
 
 export class Throttler implements IThrottler {
     // 메모리 저장소: Key(종목코드) -> Value(주식데이터)

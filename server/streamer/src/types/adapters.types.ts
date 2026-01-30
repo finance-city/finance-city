@@ -1,31 +1,33 @@
-import type { RedisStockMessage, ClientStockData } from "../types/index.js";
+// types/adapters.types.ts - 어댑터 인터페이스 정의
 
+import type { RedisStockMessage, ClientStockData } from './domain.types.js';
 
 /**
- * 메시지 브로커(Redis, Kafka 등)가 수행해야할 기능 정의
+ * 메시지 브로커(Redis, Kafka 등) 추상화
  */
 export interface IMessageBroker {
-    // 연결 및 해제
     connect(): Promise<void>;
     disconnect(): Promise<void>;
-
-    // 구독 (채널명, 그리고 데이터가 오면 실행할 콜백함수)
     subscribe(
         channel: string, 
         onMessage: (message: RedisStockMessage) => void
     ): Promise<void>;
-
 }
 
+/**
+ * WebSocket 서버 추상화
+ */
 export interface IWebSocketServer {
     start(): void;
     broadcast(event: string, payload: any): void;
     stop(): void;
 }
 
+/**
+ * 배치 처리 및 스로틀링 추상화
+ */
 export interface IThrottler {
     push(stockCode: string, data: ClientStockData): void;
-    flush(): ClientStockData[];  // 주기적으로 배치 전송
+    flush(): ClientStockData[];
     shouldUpdate(stockCode: string, newData: ClientStockData): boolean;
 }
-

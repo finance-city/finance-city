@@ -1,8 +1,7 @@
 // adapters/redis-broker.ts
 
 import { Redis } from 'ioredis';
-import type { IMessageBroker } from '../core/interfaces.ts';
-import type { RedisStockMessage } from '../types/index.ts';
+import type { IMessageBroker, RedisStockMessage } from '../types/index.js';
 
 export class RedisBroker implements IMessageBroker {
     private subscriber: Redis;

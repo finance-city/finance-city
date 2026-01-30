@@ -1,8 +1,7 @@
 // adapters/websocket-server.ts
 
 import {WebSocket, WebSocketServer as WSS} from 'ws';
-import type {IWebSocketServer} from '../core/interfaces.js';
-import type {WebSocketMessage} from '../types/index.js';
+import type {IWebSocketServer, WebSocketMessage} from '../types/index.js';
 import { IncomingMessage } from 'node:http';
 
 export class WebSocketServer implements IWebSocketServer {
