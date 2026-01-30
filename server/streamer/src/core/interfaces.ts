@@ -1,4 +1,4 @@
-import { RedisStockMessage } from "../types/index.js";
+import type { RedisStockMessage, ClientStockData } from "../types/index.js";
 
 
 /**
@@ -22,3 +22,10 @@ export interface IWebSocketServer {
     broadcast(event: string, payload: any): void;
     stop(): void;
 }
+
+export interface IThrottler {
+    push(stockCode: string, data: ClientStockData): void;
+    flush(): ClientStockData[];  // 주기적으로 배치 전송
+    shouldUpdate(stockCode: string, newData: ClientStockData): boolean;
+}
+
