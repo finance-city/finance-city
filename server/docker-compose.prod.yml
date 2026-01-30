@@ -1,0 +1,108 @@
+# docker-compose.prod.yml - 프로덕션 환경
+version: '3.8'
+
+services:
+  # ==========================================
+  # 데이터 저장소 (클러스터 모드)
+  # ==========================================
+  redis-master:
+    image: redis:7-alpine
+    container_name: finance_redis_master
+    command: redis-server --appendonly yes --maxmemory 1gb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_master_data:/data
+    restart: always
+    networks:
+      - finance_network
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+        reservations:
+          memory: 1G
+
+  # ==========================================
+  # 데이터 수집 서비스 (스케일 가능)
+  # ==========================================
+  collector:
+    image: ${ECR_REGISTRY}/finance-collector:${VERSION:-latest}
+    environment:
+      - REDIS_HOST=redis-master
+      - REDIS_PORT=6379
+      - REDIS_CHANNEL=stock:realtime
+      - KIS_APPKEY=${KIS_APPKEY}
+      - KIS_APPSECRET=${KIS_APPSECRET}
+      - LOG_LEVEL=warn
+    depends_on:
+      - redis-master
+    restart: always
+    networks:
+      - finance_network
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ==========================================
+  # 스트리밍 서비스 (로드밸런싱)
+  # ==========================================
+  streamer:
+    image: ${ECR_REGISTRY}/finance-streamer:${VERSION:-latest}
+    environment:
+      - REDIS_HOST=redis-master
+      - REDIS_PORT=6379
+      - REDIS_CHANNEL=stock:realtime
+      - WS_PORT=8081
+      - MAX_CONNECTIONS=5000
+      - FLUSH_INTERVAL_MS=50
+      - LOG_LEVEL=warn
+      - NODE_ENV=production
+    depends_on:
+      - redis-master
+    restart: always
+    networks:
+      - finance_network
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ==========================================
+  # 로드 밸런서 (ALB 대신 로컬)
+  # ==========================================
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - streamer
+    restart: always
+    networks:
+      - finance_network
+
+networks:
+  finance_network:
+    driver: bridge
+
+volumes:
+  redis_master_data:

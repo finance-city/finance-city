@@ -6,6 +6,7 @@ import { Throttler } from '../domain/throttler.js';
 import { LoggerService } from './logger.service.js';
 import { DataTransformerService } from './data-transformer.service.js';
 import type { RedisStockMessage, AppConfig } from '../types/index.js';
+import { createServer } from 'http';
 
 export class AppService {
     private readonly logger = LoggerService.create('AppService');
@@ -18,6 +19,7 @@ export class AppService {
     private flushTimer?: NodeJS.Timeout | undefined;
     private isRunning = false;
     private startTime?: Date;
+    private healthServer?: any; // HTTP server for health checks
 
     constructor(config: AppConfig) {
         this.config = config;
@@ -56,6 +58,9 @@ export class AppService {
             
             // 4. 프로세스 종료 핸들러 등록
             this.setupGracefulShutdown();
+
+            // 5. 헬스체크 서버 시작
+            this.startHealthServer();
 
             this.isRunning = true;
             
@@ -96,6 +101,7 @@ export class AppService {
             // 3. 서버들 종료
             this.wsServer.stop();
             await this.redisBroker.disconnect();
+            await this.stopHealthServer();
 
             this.isRunning = false;
 
@@ -251,6 +257,46 @@ export class AppService {
 
         process.on('SIGINT', () => shutdownHandler('SIGINT'));
         process.on('SIGTERM', () => shutdownHandler('SIGTERM'));
+    }
+
+    /**
+     * HTTP 헬스체크 서버 시작
+     */
+    private startHealthServer(): void {
+        const healthPort = parseInt(process.env.HEALTH_PORT || '8082');
+        
+        this.healthServer = createServer((req, res) => {
+            if (req.url === '/health') {
+                const health = this.getHealth();
+                const statusCode = health.status === 'healthy' ? 200 : 503;
+                
+                res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(health));
+            } else {
+                res.writeHead(404);
+                res.end('Not Found');
+            }
+        });
+
+        this.healthServer.listen(healthPort, () => {
+            this.logger.info('Health check server started', { port: healthPort });
+        });
+    }
+
+    /**
+     * HTTP 헬스체크 서버 중지
+     */
+    private stopHealthServer(): Promise<void> {
+        return new Promise((resolve) => {
+            if (this.healthServer) {
+                this.healthServer.close(() => {
+                    this.logger.info('Health check server stopped');
+                    resolve();
+                });
+            } else {
+                resolve();
+            }
+        });
     }
 
     /**
