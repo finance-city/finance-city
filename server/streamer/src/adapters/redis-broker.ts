@@ -1,8 +1,8 @@
-// RedisBroker.ts
+// adapters/redis-broker.ts
 
 import { Redis } from 'ioredis';
-import type { IMessageBroker } from '../core/interfaces.js';
-import type { RedisStockMessage } from '../types/index.js';
+import type { IMessageBroker } from '../core/interfaces.ts';
+import type { RedisStockMessage } from '../types/index.ts';
 
 export class RedisBroker implements IMessageBroker {
     private subscriber: Redis;
@@ -56,13 +56,17 @@ export class RedisBroker implements IMessageBroker {
             if (subChannel !== channel) return;
 
             try {
+                // NaN 값을 null로 교체하여 유효한 JSON으로 만들기
+                const sanitizedMessage = message.replace(/:\s*NaN/g, ': null');
+                
                 // 수신한 JSON 문자열을 객체로 변환
-                const parsedMessage: RedisStockMessage = JSON.parse(message);
+                const parsedMessage: RedisStockMessage = JSON.parse(sanitizedMessage);
                 
                 // 콜백 함수 호출
                 onMessage(parsedMessage);
             } catch (error) {
-                console.error(`Error parsing Redis message on ${subChannel}:`, error);
+                console.error(`❌ Error parsing Redis message on ${subChannel}:`, error);
+                console.error(`📄 Raw message preview: ${message.substring(0, 200)}...`);
                 // JSON 파싱 오류는 로깅 후 넘어갑니다.
             }
         });

@@ -16,3 +16,9 @@ export interface IMessageBroker {
     ): Promise<void>;
 
 }
+
+export interface IWebSocketServer {
+    start(): void;
+    broadcast(event: string, payload: any): void;
+    stop(): void;
+}
