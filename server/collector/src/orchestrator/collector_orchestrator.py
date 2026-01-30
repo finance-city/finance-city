@@ -277,6 +277,16 @@ class CollectorOrchestrator:
     
     def _setup_logging(self) -> None:
         """로깅 설정"""
+        # 루트 로거가 이미 설정되어 있는지 확인
+        root_logger = logging.getLogger()
+        if root_logger.hasHandlers():
+            # 이미 핸들러가 있다면 레벨만 조정
+            root_logger.setLevel(
+                logging.DEBUG if getattr(self.config, 'debug_mode', False) else logging.INFO
+            )
+            return
+        
+        # 새로 설정
         logging.basicConfig(
             level=logging.DEBUG if getattr(self.config, 'debug_mode', False) else logging.INFO,  # type: ignore
             format='%(asctime)s - %(levelname)s - %(message)s'
