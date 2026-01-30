@@ -316,11 +316,31 @@ class WebSocketManagerService(IWebSocketManager):
                 # 첫 번째 행 데이터 추출
                 row_data = df.iloc[0].to_dict()
                 
-                # 주요 정보 로깅
+                # 표준화된 데이터 구조 생성
+                standardized_data = {
+                    "code": "",
+                    "price": 0.0,
+                    "rate": 0.0,
+                    "vol_tick": 0,
+                    "vol_total": 0
+                }
+                
+                # 시장별 데이터 매핑
                 if tr_id in ["H0STCNT0", "H0NXCNT0"]:  # KRX 주식
                     stock_code = row_data.get("유가증권_단축_종목코드", "N/A")
                     current_price = row_data.get("주식_현재가", "N/A")
                     change_rate = row_data.get("전일_대비율", "N/A")
+                    
+                    # 표준화된 구조에 데이터 매핑
+                    try:
+                        standardized_data["code"] = str(stock_code)
+                        standardized_data["price"] = float(current_price) if current_price != "N/A" else 0.0
+                        standardized_data["rate"] = float(change_rate) if change_rate != "N/A" else 0.0
+                        standardized_data["vol_tick"] = int(row_data.get("체결거래량", 0))
+                        standardized_data["vol_total"] = int(row_data.get("누적거래량", 0))
+                    except (ValueError, TypeError):
+                        # 변환 실패 시 기본값 유지
+                        pass
                     
                     session_type = "정규장" if tr_id == "H0STCNT0" else "애프터마켓"
                     logging.info(f"📈 [KRX-{session_type}] {stock_code}: {current_price}원 ({change_rate}%)")
@@ -330,18 +350,28 @@ class WebSocketManagerService(IWebSocketManager):
                     current_price = row_data.get("LAST", "N/A")
                     change_rate = row_data.get("RATE", "N/A")
                     
+                    # 표준화된 구조에 데이터 매핑
+                    try:
+                        standardized_data["code"] = str(stock_code)
+                        standardized_data["price"] = float(current_price) if current_price != "N/A" else 0.0
+                        standardized_data["rate"] = float(change_rate) if change_rate != "N/A" else 0.0
+                        standardized_data["vol_tick"] = int(row_data.get("EVOL", 0))
+                        standardized_data["vol_total"] = int(row_data.get("TVOL", 0))
+                    except (ValueError, TypeError):
+                        # 변환 실패 시 기본값 유지
+                        pass
+                    
                     logging.info(f"📈 [US] {stock_code}: ${current_price} ({change_rate}%)")
                 
-                # 콜백 함수에 전달할 데이터 생성
+                # 콜백 함수에 전달할 데이터 생성 (통일된 구조)
                 if self._data_handler:
                     parsed_data = {
                         "tr_id": tr_id,
-                        "data": row_data,
-                        "dataframe_dict": df.to_dict('records')[0] if len(df) > 0 else {},
-                        "columns": columns,
+                        "data": standardized_data,           # 통일된 구조
+                        "raw_data": row_data,               # 원시 데이터 보존
                         "timestamp": pd.Timestamp.now().isoformat(),
-                        "stock_code": row_data.get("유가증권_단축_종목코드") or row_data.get("SYMB", "N/A"),
-                        "current_price": row_data.get("주식_현재가") or row_data.get("LAST", "N/A")
+                        "stock_code": standardized_data["code"],     # 호환성 유지
+                        "current_price": str(standardized_data["price"])  # 호환성 유지
                     }
                     
                     await self._data_handler(parsed_data)
@@ -349,15 +379,24 @@ class WebSocketManagerService(IWebSocketManager):
             except Exception as parse_error:
                 logging.error(f"❌ [{tr_id}] 파싱 실패: {parse_error}")
                 
-                # 파싱 실패해도 원시 데이터는 전달
+                # 파싱 실패 시 빈 표준화된 구조로 에러 데이터 전달
                 if self._data_handler:
-                    parsed_data = {
+                    error_data = {
                         "tr_id": tr_id,
+                        "data": {
+                            "code": "",
+                            "price": 0.0,
+                            "rate": 0.0,
+                            "vol_tick": 0,
+                            "vol_total": 0
+                        },
                         "raw_data": data_part,
                         "timestamp": pd.Timestamp.now().isoformat(),
+                        "stock_code": "",
+                        "current_price": "0",
                         "error": f"파싱 실패: {parse_error}"
                     }
-                    await self._data_handler(parsed_data)
+                    await self._data_handler(error_data)
                 
         except Exception as e:
             logging.error(f"❌ 실시간 데이터 처리 실패: {e}")

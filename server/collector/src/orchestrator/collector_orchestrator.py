@@ -211,10 +211,11 @@ class CollectorOrchestrator:
                 
                 self.redis_client.publish(channel, message)
                 
-                # 간단한 로깅
+                # 간단한 로깅 (통일된 필드명 사용)
                 tr_id = data.get("tr_id", "UNKNOWN")
-                stock_code = data.get("stock_code", "UNKNOWN")
-                logging.debug(f"데이터 발행: {tr_id}[{stock_code}] → {channel}")
+                # 통일된 데이터 구조에서 종목코드 가져오기
+                code = data.get("data", {}).get("code", data.get("stock_code", "UNKNOWN"))
+                logging.debug(f"데이터 발행: {tr_id}[{code}] → {channel}")
                 
         except Exception as e:
             logging.error(f"실시간 데이터 처리 실패: {e}")
@@ -276,6 +277,16 @@ class CollectorOrchestrator:
     
     def _setup_logging(self) -> None:
         """로깅 설정"""
+        # 루트 로거가 이미 설정되어 있는지 확인
+        root_logger = logging.getLogger()
+        if root_logger.hasHandlers():
+            # 이미 핸들러가 있다면 레벨만 조정
+            root_logger.setLevel(
+                logging.DEBUG if getattr(self.config, 'debug_mode', False) else logging.INFO
+            )
+            return
+        
+        # 새로 설정
         logging.basicConfig(
             level=logging.DEBUG if getattr(self.config, 'debug_mode', False) else logging.INFO,  # type: ignore
             format='%(asctime)s - %(levelname)s - %(message)s'
