@@ -1,0 +1,41 @@
+# 환경 변수 (민감한 정보 포함)
+.env
+.env.local
+.env.*.local
+
+# 템플릿과 프로덕션 설정은 추적 (민감한 정보 제외)
+!.env.example
+!.env.production
+
+# 로그 파일
+*.log
+logs/
+collector/logs/
+streamer/logs/
+
+# Docker
+docker-compose.override.yml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node
+node_modules/
+dist/
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+.venv

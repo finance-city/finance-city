@@ -29,13 +29,10 @@ services:
       context: ./collector
       dockerfile: Dockerfile
     container_name: finance_collector
+    env_file:
+      - .env
     environment:
       - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_CHANNEL=stock:realtime
-      - KIS_APPKEY=${KIS_APPKEY}
-      - KIS_APPSECRET=${KIS_APPSECRET}
-      - LOG_LEVEL=info
     depends_on:
       redis:
         condition: service_healthy
@@ -53,18 +50,14 @@ services:
       context: ./streamer
       dockerfile: Dockerfile
     container_name: finance_streamer
+    env_file:
+      - .env
     environment:
       - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_CHANNEL=stock:realtime
-      - WS_PORT=8081
-      - HEALTH_PORT=8082
-      - MAX_CONNECTIONS=1000
-      - FLUSH_INTERVAL_MS=100
-      - LOG_LEVEL=info
       - NODE_ENV=production
     ports:
-      - "8081:8081"
+      - "${WS_PORT:-8081}:8081"
+      - "${HEALTH_PORT:-8082}:8082"
     depends_on:
       redis:
         condition: service_healthy

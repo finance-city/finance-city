@@ -26,13 +26,10 @@ services:
   # ==========================================
   collector:
     image: ${ECR_REGISTRY}/finance-collector:${VERSION:-latest}
+    env_file:
+      - .env.production
     environment:
       - REDIS_HOST=redis-master
-      - REDIS_PORT=6379
-      - REDIS_CHANNEL=stock:realtime
-      - KIS_APPKEY=${KIS_APPKEY}
-      - KIS_APPSECRET=${KIS_APPSECRET}
-      - LOG_LEVEL=warn
     depends_on:
       - redis-master
     restart: always
@@ -56,14 +53,10 @@ services:
   # ==========================================
   streamer:
     image: ${ECR_REGISTRY}/finance-streamer:${VERSION:-latest}
+    env_file:
+      - .env.production
     environment:
       - REDIS_HOST=redis-master
-      - REDIS_PORT=6379
-      - REDIS_CHANNEL=stock:realtime
-      - WS_PORT=8081
-      - MAX_CONNECTIONS=5000
-      - FLUSH_INTERVAL_MS=50
-      - LOG_LEVEL=warn
       - NODE_ENV=production
     depends_on:
       - redis-master
