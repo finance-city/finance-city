@@ -3,6 +3,7 @@
 import {WebSocket, WebSocketServer as WSS} from 'ws';
 import type {IWebSocketServer, WebSocketMessage} from '../types/index.js';
 import { IncomingMessage } from 'node:http';
+import { metricsService } from '../services/metrics.service.js';
 
 export class WebSocketServer implements IWebSocketServer {
     private wss: WSS | null = null;
@@ -25,8 +26,9 @@ export class WebSocketServer implements IWebSocketServer {
         const ip = req.socket.remoteAddress;
         console.log(`📱 Client connected: ${ip}`);
 
-        // 현재 접속자 수 로깅
+        // 현재 접속자 수 로깅 및 메트릭 업데이트
         this.logClientCount();
+        this.updateMetrics();
 
         // TODO: snapshot 전송 
 
@@ -34,6 +36,7 @@ export class WebSocketServer implements IWebSocketServer {
         ws.on('close', () => {
             console.log(`📱 Client disconnected: ${ip}`);
             this.logClientCount();
+            this.updateMetrics();
         });
 
         // 에러 처리
@@ -58,13 +61,20 @@ export class WebSocketServer implements IWebSocketServer {
         };
 
         const messageStr = JSON.stringify(message);
+        let sentCount = 0;
 
         // 접속한 모든 클라이언트를 순회하며 전송
         this.wss.clients.forEach((client) => {
             if (client.readyState === WebSocket.OPEN) {
                 client.send(messageStr);
+                sentCount++;
             }
         });
+
+        // 메트릭 기록: 실제 전송된 메시지 수
+        if (sentCount > 0) {
+            metricsService.incrementBroadcastMessages(event);
+        }
     }
 
     stop(): void {
@@ -83,5 +93,10 @@ export class WebSocketServer implements IWebSocketServer {
         }
     }
 
-
+    // 메트릭 업데이트
+    private updateMetrics() {
+        if (this.wss) {
+            metricsService.setConnectedClients(this.wss.clients.size);
+        }
+    }
 }

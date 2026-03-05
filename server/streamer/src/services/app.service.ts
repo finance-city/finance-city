@@ -5,6 +5,7 @@ import { WebSocketServer } from '../adapters/websocket-server.js';
 import { Throttler } from '../domain/throttler.js';
 import { LoggerService } from './logger.service.js';
 import { DataTransformerService } from './data-transformer.service.js';
+import { metricsService } from './metrics.service.js';
 import type { RedisStockMessage, AppConfig } from '../types/index.js';
 import { createServer } from 'http';
 
@@ -197,6 +198,21 @@ export class AppService {
      */
     private handleStockMessage(message: RedisStockMessage): void {
         try {
+            // 메트릭: Redis 메시지 수신 카운트
+            const channel = this.config.redis.channel || this.config.redis.channels[0] || 'stock:realtime';
+            metricsService.incrementRedisMessages(channel);
+
+            // 메트릭: 내부 지연 시간 측정 (Collector timestamp → 현재)
+            if (message.timestamp) {
+                const timestampMs = typeof message.timestamp === 'string' 
+                    ? parseInt(message.timestamp, 10) 
+                    : message.timestamp;
+                
+                if (!isNaN(timestampMs)) {
+                    metricsService.recordInternalLatency(timestampMs);
+                }
+            }
+
             // 데이터 변환
             const clientData = this.dataTransformer.transformToClientData(message);
             
@@ -265,13 +281,37 @@ export class AppService {
     private startHealthServer(): void {
         const healthPort = parseInt(process.env.HEALTH_PORT || '8082');
         
-        this.healthServer = createServer((req, res) => {
+        this.healthServer = createServer(async (req, res) => {
+            // CORS 헤더 설정
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+            
+            if (req.method === 'OPTIONS') {
+                res.writeHead(200);
+                res.end();
+                return;
+            }
+
+            // 라우팅
             if (req.url === '/health') {
                 const health = this.getHealth();
                 const statusCode = health.status === 'healthy' ? 200 : 503;
                 
                 res.writeHead(statusCode, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify(health));
+                
+            } else if (req.url === '/metrics') {
+                // Prometheus 메트릭 엔드포인트
+                try {
+                    const metrics = await metricsService.getMetrics();
+                    res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4' });
+                    res.end(metrics);
+                } catch (error) {
+                    this.logger.error('Failed to get metrics', error as Error);
+                    res.writeHead(500);
+                    res.end('Internal Server Error');
+                }
+                
             } else {
                 res.writeHead(404);
                 res.end('Not Found');
@@ -279,7 +319,10 @@ export class AppService {
         });
 
         this.healthServer.listen(healthPort, () => {
-            this.logger.info('Health check server started', { port: healthPort });
+            this.logger.info('Health check & Metrics server started', { 
+                port: healthPort,
+                endpoints: ['/health', '/metrics']
+            });
         });
     }
 
