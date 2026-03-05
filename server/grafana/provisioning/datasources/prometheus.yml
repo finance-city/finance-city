@@ -1,0 +1,28 @@
+# Grafana 데이터 소스 자동 프로비저닝 설정
+# Prometheus를 기본 데이터 소스로 등록
+
+apiVersion: 1
+
+# 데이터 소스 삭제 가능 여부
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    orgId: 1
+    url: http://prometheus:9090
+    basicAuth: false
+    isDefault: true
+    version: 1
+    editable: true
+    jsonData:
+      httpMethod: POST
+      # 쿼리 타임아웃 설정
+      queryTimeout: '60s'
+      # 시계열 데이터베이스 타입
+      timeInterval: '15s'
+      # Exemplar 지원 (분산 추적과 연동 시 유용)
+      exemplarTraceIdDestinations: []
