@@ -6,3 +6,4 @@ python-dotenv
 pandas
 pycryptodome
 pytz
+prometheus_client

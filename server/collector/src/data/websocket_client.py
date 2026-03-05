@@ -10,8 +10,10 @@ import websockets
 from typing import Callable, Optional, Dict, Any, List
 from datetime import datetime
 import logging
+import time
 
 from core import IWebSocketManager, StockInfo, WebSocketError, TimeoutError
+from services.metrics_service import metrics_service
 
 
 class KISWebSocketClient(IWebSocketManager):
@@ -55,6 +57,9 @@ class KISWebSocketClient(IWebSocketManager):
         
         # 로깅 설정
         self._logger = logging.getLogger(__name__)
+        
+        # 시장 식별 (메트릭용)
+        self._market = 'krx' if 'ops.koreainvestment.com' in ws_url else 'us'
     
     async def connect(self) -> None:
         """WebSocket 연결을 설정합니다.
@@ -82,6 +87,9 @@ class KISWebSocketClient(IWebSocketManager):
             # 메시지 수신 태스크 시작
             self._connection_task = asyncio.create_task(self._message_loop())
             
+            # 메트릭: WebSocket 연결 상태 업데이트
+            metrics_service.set_websocket_status(self._market, True)
+            
             # 연결 설정 알림
             if self._on_connect:
                 self._on_connect()
@@ -90,6 +98,8 @@ class KISWebSocketClient(IWebSocketManager):
             
         except Exception as e:
             self._is_connected = False
+            # 메트릭: 연결 실패 상태
+            metrics_service.set_websocket_status(self._market, False)
             raise WebSocketError(f"Failed to connect to WebSocket: {e}", connection_state="disconnected")
     
     async def disconnect(self) -> None:
@@ -133,6 +143,10 @@ class KISWebSocketClient(IWebSocketManager):
             # 구독 정보 지우기
             self._subscribed_requests.clear()
             
+            # 메트릭: WebSocket 연결 해제
+            metrics_service.set_websocket_status(self._market, False)
+            metrics_service.set_active_subscriptions(self._market, 0)
+            
             # 연결 해제 알림
             if self._on_disconnect:
                 try:
@@ -165,6 +179,9 @@ class KISWebSocketClient(IWebSocketManager):
                 "stock": stock,
                 "timestamp": datetime.now()
             })
+        
+        # 메트릭: 활성 구독 수 업데이트
+        metrics_service.set_active_subscriptions(self._market, len(stocks))
     
     async def unsubscribe_stocks(self, stocks: List[StockInfo]) -> None:
         """주어진 주식들의 실시간 데이터 구독을 해제합니다.

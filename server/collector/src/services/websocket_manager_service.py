@@ -14,6 +14,7 @@ import pandas as pd
 from io import StringIO
 
 from core import IWebSocketManager, StockInfo, IAuthManager, IRequestBuilder
+from services.metrics_service import metrics_service
 
 
 class WebSocketManagerService(IWebSocketManager):
@@ -75,8 +76,14 @@ class WebSocketManagerService(IWebSocketManager):
             
             logging.info(f"✅ WebSocket 연결 성공: {self._api_url}")
             
+            # 메트릭: WebSocket 연결 상태 업데이트
+            metrics_service.set_websocket_status('krx', True)
+            metrics_service.set_websocket_status('us', True)
+            
         except Exception as e:
             logging.error(f"❌ WebSocket 연결 실패: {e}")
+            metrics_service.set_websocket_status('krx', False)
+            metrics_service.set_websocket_status('us', False)
             raise
     
     async def disconnect(self) -> None:
@@ -119,6 +126,12 @@ class WebSocketManagerService(IWebSocketManager):
                 await self._subscribe_market_stocks(us_stocks, "US")
             
             self._subscribed_stocks.extend(stocks)
+            
+            # 메트릭: 구독 종목 수 업데이트
+            krx_count = len([s for s in self._subscribed_stocks if self._is_krx_stock(s)])
+            us_count = len([s for s in self._subscribed_stocks if self._is_us_stock(s)])
+            metrics_service.set_active_subscriptions('krx', krx_count)
+            metrics_service.set_active_subscriptions('us', us_count)
             
             stock_codes = [s.code for s in stocks]
             logging.info(f"✅ 종목 구독 완료: {', '.join(stock_codes)}")
@@ -260,7 +273,7 @@ class WebSocketManagerService(IWebSocketManager):
                 message_str = raw_message.decode('utf-8')
             else:
                 message_str = str(raw_message)
-            
+    
             # 실시간 데이터 파싱
             if message_str.startswith(('0', '1')):
                 await self._handle_realtime_data(message_str)
@@ -342,6 +355,10 @@ class WebSocketManagerService(IWebSocketManager):
                         # 변환 실패 시 기본값 유지
                         pass
                     
+                    # 메트릭: 틱 데이터 수집 기록
+                    if stock_code != "N/A":
+                        metrics_service.record_tick('krx', str(stock_code))
+                    
                     session_type = "정규장" if tr_id == "H0STCNT0" else "애프터마켓"
                     logging.info(f"📈 [KRX-{session_type}] {stock_code}: {current_price}원 ({change_rate}%)")
                     
@@ -360,6 +377,10 @@ class WebSocketManagerService(IWebSocketManager):
                     except (ValueError, TypeError):
                         # 변환 실패 시 기본값 유지
                         pass
+                    
+                    # 메트릭: 틱 데이터 수집 기록
+                    if stock_code != "N/A":
+                        metrics_service.record_tick('us', str(stock_code))
                     
                     logging.info(f"📈 [US] {stock_code}: ${current_price} ({change_rate}%)")
                 

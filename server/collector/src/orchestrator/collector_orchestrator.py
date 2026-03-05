@@ -15,6 +15,7 @@ import asyncio
 from typing import Dict, List, Optional, Callable, Any
 import signal
 import sys
+import os
 
 # 새로운 모듈 임포트
 from config import AppConfig
@@ -23,6 +24,9 @@ from core import (
     IStockManager, IMarketManager, IRequestBuilder, IDataParser,
     IAuthManager, IWebSocketManager, ServiceContainer
 )
+
+# Metrics Service
+from services.metrics_service import metrics_service, start_metrics_server
 
 
 class CollectorOrchestrator:
@@ -72,6 +76,9 @@ class CollectorOrchestrator:
             
             # 로깅 설정
             self._setup_logging()
+            
+            # Prometheus 메트릭 서버 시작
+            self._start_metrics_server()
             
             # DI 컨테이너 및 서비스 초기화
             if not self._initialize_services():
@@ -193,12 +200,16 @@ class CollectorOrchestrator:
     
     async def _handle_realtime_data(self, data: Dict) -> None:
         """실시간 데이터 처리 핸들러"""
+        market = 'krx'  # 기본값
+        
         try:
             # 데이터를 Redis로 발행
             if self.redis_client and self.config:
                 # Redis 연결 상태 확인
                 if not self._check_redis_connection():
                     logging.warning("Redis 연결이 끊어져 있어 데이터 발행을 건너뜁니다")
+                    # 메트릭: Redis publish 실패
+                    metrics_service.record_redis_publish(market, False)
                     return
                 
                 channel = self.config.redis_channel
@@ -207,18 +218,32 @@ class CollectorOrchestrator:
                 # 메시지 크기 체크 (1MB 제한)
                 if len(message.encode('utf-8')) > 1024 * 1024:
                     logging.warning(f"메시지가 너무 큽니다 ({len(message)} bytes), 발행을 건너뜁니다")
+                    metrics_service.record_redis_publish(market, False)
                     return
                 
+                # 시장 식별 (TR_ID 기반)
+                tr_id = data.get("tr_id", "UNKNOWN")
+                if 'H0ST' in tr_id or 'H0NX' in tr_id:
+                    market = 'krx'
+                elif 'HDFS' in tr_id:
+                    market = 'us'
+                
+                # Redis publish
                 self.redis_client.publish(channel, message)
                 
+                # 메트릭: Redis publish 성공
+                metrics_service.record_redis_publish(market, True)
+                
                 # 간단한 로깅 (통일된 필드명 사용)
-                tr_id = data.get("tr_id", "UNKNOWN")
                 # 통일된 데이터 구조에서 종목코드 가져오기
                 code = data.get("data", {}).get("code", data.get("stock_code", "UNKNOWN"))
                 logging.debug(f"데이터 발행: {tr_id}[{code}] → {channel}")
                 
         except Exception as e:
             logging.error(f"실시간 데이터 처리 실패: {e}")
+            # 메트릭: Redis publish 실패
+            metrics_service.record_redis_publish(market, False)
+            metrics_service.record_error(market, 'redis_publish')
     
     def _check_redis_connection(self) -> bool:
         """Redis 연결 상태 확인"""
@@ -291,6 +316,15 @@ class CollectorOrchestrator:
             level=logging.DEBUG if getattr(self.config, 'debug_mode', False) else logging.INFO,  # type: ignore
             format='%(asctime)s - %(levelname)s - %(message)s'
         )
+    
+    def _start_metrics_server(self) -> None:
+        """Prometheus 메트릭 서버 시작"""
+        try:
+            metrics_port = int(os.getenv('COLLECTOR_METRICS_PORT', '8090'))
+            start_metrics_server(metrics_port)
+        except Exception as e:
+            logging.warning(f"⚠️ Failed to start metrics server: {e}")
+            # 메트릭 서버 실패는 치명적이지 않으므로 계속 진행
     
     def _initialize_services(self) -> bool:
         """DI 컨테이너 및 서비스 초기화"""

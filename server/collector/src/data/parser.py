@@ -7,10 +7,12 @@
 
 import json
 import re
+import time
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
 from core import IDataParser, MarketData, IMarketManager, DataParsingError
+from services.metrics_service import metrics_service
 
 
 class KISDataParser(IDataParser):
@@ -44,6 +46,8 @@ class KISDataParser(IDataParser):
         Returns:
             파싱된 MarketData 객체, 파싱 실패 시 None
         """
+        start_time = time.perf_counter()
+        
         try:
             # JSON 메시지 파싱
             data = json.loads(message.strip())
@@ -65,15 +69,29 @@ class KISDataParser(IDataParser):
                 return None
             
             # 마켓 데이터 파싱
-            return self._parse_market_data(output, detected_market, tr_id)
+            market_data = self._parse_market_data(output, detected_market, tr_id)
+            
+            # 메트릭: 처리 시간 기록
+            duration = time.perf_counter() - start_time
+            metrics_service.record_processing_time(detected_market.lower(), duration)
+            
+            # 메트릭: 틱 카운트 (파싱 성공 시)
+            if market_data and market_data.stock_code:
+                metrics_service.record_tick(detected_market.lower(), market_data.stock_code)
+            
+            return market_data
             
         except (json.JSONDecodeError, KeyError, ValueError) as e:
+            # 메트릭: 파싱 에러
+            metrics_service.record_error(market.lower(), 'parsing')
             raise DataParsingError(
                 f"Failed to parse WebSocket message: {e}",
                 raw_data=message[:500],  # 로깅을 위해 자르기
                 parser_type="kis_realtime"
             )
         except Exception as e:
+            # 메트릭: 기타 에러
+            metrics_service.record_error(market.lower(), 'unknown')
             raise DataParsingError(
                 f"Unexpected parsing error: {e}",
                 raw_data=message[:500],
