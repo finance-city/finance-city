@@ -1,0 +1,67 @@
+# Prometheus 설정 파일
+# Finance City 시스템 메트릭 수집
+
+global:
+  scrape_interval: 15s      # 15초마다 메트릭 수집 (실시간 금융 데이터 특성상 짧게 설정)
+  evaluation_interval: 15s  # 규칙 평가 주기
+  scrape_timeout: 10s       # 타임아웃
+  
+  external_labels:
+    cluster: 'finance-city'
+    environment: 'production'
+
+# 알림 규칙 설정 (향후 확장 가능)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ['alertmanager:9093']
+
+# Scrape 설정
+scrape_configs:
+  # ==========================================
+  # Prometheus 자체 모니터링
+  # ==========================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  # ==========================================
+  # Collector (Python) 메트릭
+  # ==========================================
+  - job_name: 'collector'
+    static_configs:
+      - targets: ['collector:8090']
+        labels:
+          service: 'collector'
+          component: 'data-ingestion'
+    # 수집 실패 시에도 계속 시도
+    honor_labels: true
+    # 타임아웃을 좀 더 길게 (Python 앱 특성상)
+    scrape_timeout: 10s
+
+  # ==========================================
+  # Streamer (Node.js) 메트릭
+  # ==========================================
+  - job_name: 'streamer'
+    static_configs:
+      - targets: ['streamer:8082']
+        labels:
+          service: 'streamer'
+          component: 'data-streaming'
+    honor_labels: true
+    # /metrics 경로 명시 (health check와 구분)
+    metrics_path: '/metrics'
+
+  # ==========================================
+  # Redis Exporter
+  # ==========================================
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: 'redis'
+          component: 'cache'
+    # Redis 메트릭은 매우 중요하므로 더 자주 수집
+    scrape_interval: 10s
