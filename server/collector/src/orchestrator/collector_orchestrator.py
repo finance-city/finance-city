@@ -184,6 +184,14 @@ class CollectorOrchestrator:
             # 종목 구독
             await self.ws_manager.subscribe_stocks(self.active_stocks)
             
+            # 시장 상태 업데이트 (구독 시작 = 시장 개장)
+            if self.krx_stocks:
+                metrics_service.set_market_status('krx', True)
+                logging.info("📊 KRX 시장 상태: Open (1)")
+            if self.us_stocks:
+                metrics_service.set_market_status('us', True)
+                logging.info("📊 US 시장 상태: Open (1)")
+            
             # 데이터 핸들러 설정
             async def data_handler(data):
                 await self._handle_realtime_data(data)
@@ -195,6 +203,14 @@ class CollectorOrchestrator:
             logging.error(f"비동기 실행 실패: {e}")
             raise
         finally:
+            # 종료 시 시장 상태를 Closed로 변경
+            if self.krx_stocks:
+                metrics_service.set_market_status('krx', False)
+                logging.info("📊 KRX 시장 상태: Closed (0)")
+            if self.us_stocks:
+                metrics_service.set_market_status('us', False)
+                logging.info("📊 US 시장 상태: Closed (0)")
+            
             if self.ws_manager:
                 await self.ws_manager.disconnect()
     
