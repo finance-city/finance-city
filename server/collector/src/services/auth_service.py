@@ -66,8 +66,11 @@ class AuthService(IAuthManager):
         except Exception as e:
             raise AuthenticationError(f"Failed to obtain access token: {e}", auth_type="token")
     
-    def get_approval_key(self) -> str:
+    def get_approval_key(self, force_refresh: bool = False) -> str:
         """WebSocket 연결을 위한 승인 키를 가져옵니다.
+        
+        Args:
+            force_refresh: True이면 캐시를 무시하고 새로운 키를 요청
         
         Returns:
             유효한 승인 키
@@ -75,17 +78,22 @@ class AuthService(IAuthManager):
         Raises:
             AuthenticationError: 승인 키를 얻을 수 없는 경우
         """
+        import logging
+        
         # 유효한 액세스 토큰이 있는지 확인
         access_token = self.get_access_token()
         
-        # Try to get cached approval key
-        cached_approval = self._get_cached_approval_key()
-        if cached_approval:
-            self._credentials.approval_key = cached_approval
-            return self._credentials.approval_key
+        # Try to get cached approval key (force_refresh가 False일 때만)
+        if not force_refresh:
+            cached_approval = self._get_cached_approval_key()
+            if cached_approval:
+                logging.info(f"✅ 캐시된 승인 키 사용: {cached_approval[:8]}...")
+                self._credentials.approval_key = cached_approval
+                return self._credentials.approval_key
         
         # Request new approval key
         try:
+            logging.info("🔑 새로운 승인 키 요청 중...")
             approval_key = self._request_new_approval_key(access_token)
             
             # Cache the approval key
@@ -94,6 +102,7 @@ class AuthService(IAuthManager):
             # Update credentials
             self._credentials.approval_key = approval_key
             
+            logging.info(f"✅ 새로운 승인 키 발급: {approval_key[:8]}...")
             return self._credentials.approval_key
             
         except Exception as e:
@@ -306,14 +315,25 @@ class AuthService(IAuthManager):
         return None
     
     def _cache_approval_key(self, approval_key: str) -> None:
-        """승인 키를 Redis에 캐시합니다."""
+        """승인 키를 Redis에 캐시합니다.
+        
+        Note: KIS 공식 문서에 따르면 approval key는:
+        - 유효기간: 24시간
+        - 세션 연결 시 초기 1회만 사용
+        - 세션이 유지되면 재발급 불필요
+        
+        하지만 WebSocket 재연결 시에는 새 키가 필요할 수 있으므로
+        짧은 캐시 시간(1시간)을 사용하여 재연결 시 새 키 발급 유도
+        """
         if not self._redis:
             return
         
         try:
             cache_key = f"{self._approval_cache_prefix}{self._credentials.app_key}"
-            # Cache for 23 hours
-            self._redis.setex(cache_key, 23 * 3600, approval_key)
+            # 1시간만 캐시: WebSocket 재연결 시 새 키 발급 유도
+            self._redis.setex(cache_key, 3600, approval_key)
+            import logging
+            logging.info(f"승인 키 캐시 저장 (1시간): {cache_key}")
         except Exception as e:
             print(f"Warning: Failed to cache approval key: {e}")
     

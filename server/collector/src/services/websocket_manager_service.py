@@ -40,15 +40,25 @@ class WebSocketManagerService(IWebSocketManager):
         self._data_map: Dict[str, Dict] = {}
         
     async def connect(self) -> None:
-        """WebSocket 연결 수립"""
+        """WebSocket 연결 수립
+        
+        KIS 공식 문서에 따르면:
+        - Approval key는 세션 연결 시 초기 1회만 사용
+        - 세션이 유지되면 365일 사용 가능
+        - 하지만 재연결 시에는 새로운 approval key가 필요할 수 있음
+        """
         try:
             # 승인키 확인
             if self._auth_manager is None:
                 raise ValueError("AuthManager가 설정되지 않았습니다.")
             
-            approval_key = self._auth_manager.get_approval_key()
+            # 재연결 시에는 새로운 approval key 발급 (force_refresh=False로 캐시 우선)
+            # 캐시가 없거나 만료된 경우에만 새로 발급
+            approval_key = self._auth_manager.get_approval_key(force_refresh=False)
             if not approval_key:
                 raise ValueError("WebSocket 승인키가 필요합니다")
+            
+            logging.info(f"🔑 Approval Key로 WebSocket 연결 시도: {approval_key[:8]}...")
             
             # WebSocket 연결
             headers = {
@@ -470,11 +480,49 @@ class WebSocketManagerService(IWebSocketManager):
                     if body.get('rt_cd') != '0':
                         error_msg = body.get('msg1', 'Unknown error')
                         logging.error(f"❌ 구독 실패: {error_msg} (tr_id: {tr_id})")
+                        
+                        # 'invalid approval' 오류인 경우 특별 처리
+                        if 'invalid approval' in error_msg.lower():
+                            logging.warning("⚠️  승인 키가 만료되었습니다. 재발급 시도...")
+                            await self._handle_invalid_approval(tr_id, tr_key)
                     
             # 기타 시스템 응답은 무시
             
         except Exception as e:
             logging.warning(f"시스템 응답 처리 실패: {e}")
+    
+    async def _handle_invalid_approval(self, tr_id: str, tr_key: str) -> None:
+        """승인 키 만료 시 재발급 및 재구독 처리"""
+        try:
+            if not self._auth_manager:
+                logging.error("AuthManager가 없어 승인 키를 재발급할 수 없습니다")
+                return
+            
+            logging.info("🔄 승인 키 재발급 중...")
+            
+            # 강제로 새로운 승인 키 발급
+            new_approval_key = self._auth_manager.get_approval_key(force_refresh=True)
+            
+            logging.info(f"✅ 새로운 승인 키 발급됨: {new_approval_key[:8]}...")
+            
+            # RequestBuilder의 approval key 업데이트
+            if hasattr(self._request_builder, '_approval_key'):
+                self._request_builder._approval_key = new_approval_key
+                logging.info("RequestBuilder의 승인 키 업데이트 완료")
+            
+            # WebSocket 재연결 (새로운 승인 키로)
+            logging.info("🔄 WebSocket 재연결 중...")
+            await self.disconnect()
+            await asyncio.sleep(1)  # 짧은 대기
+            await self.connect()
+            
+            # 기존 구독 종목들을 다시 구독
+            if self._subscribed_stocks:
+                logging.info(f"🔄 {len(self._subscribed_stocks)}개 종목 재구독 중...")
+                await self.subscribe_stocks(self._subscribed_stocks.copy())
+            
+        except Exception as e:
+            logging.error(f"❌ 승인 키 재발급 실패: {e}")
     
     def _get_columns_for_tr_id(self, tr_id: str) -> List[str]:
         """TR_ID에 해당하는 컬럼 정보 반환"""
