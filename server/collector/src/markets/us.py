@@ -3,6 +3,15 @@
 
 이 모듈은 NASDAQ, NYSE, AMEX를 포함한 미국 주식 시장을 위한
 마켓별 기능을 제공합니다.
+
+WebSocket 데이터 발생 시간 (KST 기준):
+- 한국투자증권 미국장전거래: 10:00 ~ 16:00
+- 미국시장 (프리+정규+애프터): 18:00 ~ 07:00
+  * 프리마켓: 18:00 ~ 23:30
+  * 정규장: 23:30 ~ 06:00 (EST 기준, EDT는 -1시간)
+  * 애프터마켓: 06:00 ~ 07:00
+  
+주의: 장전거래는 현재 중단 상태인 경우가 많아 대부분의 체결 데이터는 18:00 이후 발생
 """
 
 from datetime import datetime, time
@@ -60,14 +69,14 @@ class USMarketProvider(BaseMarketProvider):
             session=session,
             fields=fields,
             exchange_codes={
-                # 야간거래 코드 (한국 마켓 시간)
-                "NASDAQ_NIGHT": "NAS",
-                "NYSE_NIGHT": "NYS", 
-                "AMEX_NIGHT": "AMS",
-                # 주간거래 코드 (미국 마켓 시간) 
-                "NASDAQ_DAY": "BAQ",
-                "NYSE_DAY": "BAY",
-                "AMEX_DAY": "BAA"
+                # D prefix: 한국투자증권 미국장전거래 시간 (10:00-16:00 KST)
+                "NASDAQ_PREMARKET_SESSION": "NAS",
+                "NYSE_PREMARKET_SESSION": "NYS", 
+                "AMEX_PREMARKET_SESSION": "AMS",
+                # R prefix: 실제 미국시장 시간 (18:00-07:00 KST) 
+                "NASDAQ_US_HOURS": "BAQ",
+                "NYSE_US_HOURS": "BAY",
+                "AMEX_US_HOURS": "BAA"
             }
         )
     
@@ -104,14 +113,16 @@ class USMarketProvider(BaseMarketProvider):
         
         return None
     
-    def format_stock_code(self, code: str, is_night_trading: bool = False) -> str:
+    def format_stock_code(self, code: str, use_premarket_session: bool = False) -> str:
         """API 요청을 위한 미국 주식 코드를 포맷합니다.
         
-        거래 세션과 DST 상태에 따라 코드를 포맷합니다.
+        WebSocket 운영시간에 따라 prefix를 선택합니다:
+        - D prefix: 한국투자증권 미국장전거래 시간 (10:00-16:00 KST)
+        - R prefix: 실제 미국시장 시간 (18:00-07:00 KST, 프리+정규+애프터)
         
         Args:
             code: 포맷할 주식 심볼
-            is_night_trading: 야간거래 세션 여부
+            use_premarket_session: 장전거래 세션 사용 여부 (10:00-16:00 KST)
             
         Returns:
             KIS API용 포맷된 코드 (예: DNASAAPL, RBAYMSFT)
@@ -123,14 +134,14 @@ class USMarketProvider(BaseMarketProvider):
         # 거래소 결정 (명시되지 않은 경우 NASDAQ으로 가정)
         exchange = self._detect_exchange(symbol)
         
-        if is_night_trading:
-            # 한국 마켓 시간 (야간거래)
-            prefix = "D"  # 주간거래 접두사
-            exchange_code = self._get_night_exchange_code(exchange)
+        if use_premarket_session:
+            # 한국투자증권 미국장전거래 시간 (10:00-16:00 KST)
+            prefix = "D"
+            exchange_code = self._get_premarket_session_exchange_code(exchange)
         else:
-            # 미국 마켓 시간 (한국 관점에서의 주간거래)
-            prefix = "R"  # 실시간 접두사
-            exchange_code = self._get_day_exchange_code(exchange)
+            # 실제 미국시장 시간 (18:00-07:00 KST)
+            prefix = "R"
+            exchange_code = self._get_us_hours_exchange_code(exchange)
         
         return f"{prefix}{exchange_code}{symbol}"
     
@@ -160,23 +171,23 @@ class USMarketProvider(BaseMarketProvider):
             # 알 수 없는 심볼은 기본적으로 NASDAQ
             return "NASDAQ"
     
-    def _get_night_exchange_code(self, exchange: str) -> str:
-        """야간거래 거래소 코드를 가져옵니다."""
-        night_codes = {
+    def _get_premarket_session_exchange_code(self, exchange: str) -> str:
+        """한국투자증권 장전거래(10:00-16:00 KST) 거래소 코드를 가져옵니다."""
+        premarket_session_codes = {
             "NASDAQ": "NAS",
             "NYSE": "NYS", 
             "AMEX": "AMS"
         }
-        return night_codes.get(exchange, "NAS")
+        return premarket_session_codes.get(exchange, "NAS")
     
-    def _get_day_exchange_code(self, exchange: str) -> str:
-        """주간거래 거래소 코드를 가져옵니다."""
-        day_codes = {
+    def _get_us_hours_exchange_code(self, exchange: str) -> str:
+        """실제 미국시장 시간(18:00-07:00 KST) 거래소 코드를 가져옵니다."""
+        us_hours_codes = {
             "NASDAQ": "BAQ",
             "NYSE": "BAY",
             "AMEX": "BAA"
         }
-        return day_codes.get(exchange, "BAQ")
+        return us_hours_codes.get(exchange, "BAQ")
     
     def is_dst_period(self, dt: Optional[datetime] = None) -> bool:
         """일광절약시간(DST)이 활성화되어 있는지 확인합니다.
@@ -200,84 +211,115 @@ class USMarketProvider(BaseMarketProvider):
         
         return dst_start <= dt < dst_end
     
-    def should_use_night_trading(self, current_time: Optional[datetime] = None) -> bool:
+    def is_in_websocket_operational_hours(self, current_time: Optional[datetime] = None) -> bool:
+        """WebSocket 데이터가 발생하는 시간대인지 확인합니다.
+        
+        WebSocket 운영시각 (KST 기준):
+        - 한국투자증권 미국장전거래: 10:00 ~ 16:00
+        - 실제 미국시장: 18:00 ~ 07:00 (다음날)
+        
+        Args:
+            current_time: 확인할 시간 (None이면 현재 시각)
+            
+        Returns:
+            WebSocket 운영시간대이면 True, 아니면 False (채널 닫힘)
+        """
         if current_time is None:
             current_time = datetime.now()
         
         hour = current_time.hour
-        minute = current_time.minute
-
-        is_us_day_trading_hours = (
-            (hour >= 10 and hour <= 15) or
-            (hour == 16 and minute == 0)
-        )
         
-        return not is_us_day_trading_hours
-
-
-    # def should_use_night_trading(self, current_time: Optional[datetime] = None) -> bool:
-    #     """야간거래 코드를 사용해야 하는지 결정합니다.
+        # 장전거래 시간 (10:00-16:00 KST)
+        is_premarket_session = 10 <= hour < 16
         
-    #     KIS API 시간대별 코드 사용법:
-    #     - D prefix (야간거래): 프리마켓, 애프터마켓 시간 (미국 장외 시간)
-    #     - R prefix (주간거래): 미국 정규장 시간 (09:30-16:00 ET)
+        # 미국시장 시간 (18:00-07:00 KST, 자정 넘어감)
+        is_us_market_hours = hour >= 18 or hour < 7
         
-    #     현재 시간이 미국 정규장 시간인지 확인하여 결정:
-    #     - 정규장 시간 (09:30-16:00 ET) → R prefix (False 반환)
-    #     - 정규장 외 시간 (프리마켓, 애프터마켓) → D prefix (True 반환)
-    #     """
-    #     if current_time is None:
-    #         current_time = datetime.now()
-        
-    #     hour = current_time.hour
-    #     minute = current_time.minute
-        
-    #     if self.is_dst_period(current_time):
-    #         # EDT (써머타임): 미국 정규장 09:30-16:00 ET = 한국시간 22:30-05:00
-    #         is_us_regular_hours = (
-    #             (hour == 22 and minute >= 30) or  # 22:30~23:59
-    #             (23 <= hour <= 23) or             # 23:00~23:59  
-    #             (0 <= hour <= 4) or               # 00:00~04:59
-    #             (hour == 5 and minute == 0)       # 05:00 (정확히 16:00 ET)
-    #         )
-    #     else:
-    #         # EST (표준시): 미국 정규장 09:30-16:00 ET = 한국시간 23:30-06:00
-    #         is_us_regular_hours = (
-    #             (hour == 23 and minute >= 30) or  # 23:30~23:59
-    #             (0 <= hour <= 5) or               # 00:00~05:59
-    #             (hour == 6 and minute == 0)       # 06:00 (정확히 16:00 ET)
-    #         )
-        
-    #     # 정규장 시간이 아니면 야간거래 코드(D) 사용
-    #     # 정규장 시간이면 주간거래 코드(R) 사용
-    #     return not is_us_regular_hours
+        return is_premarket_session or is_us_market_hours
     
-    def get_trading_session_info(self, current_time: Optional[datetime] = None) -> dict:
-        """상세한 거래 세션 정보를 가져옵니다."""
+    def should_use_premarket_session(self, current_time: Optional[datetime] = None) -> bool:
+        """한국투자증권 장전거래 시간대인지 확인합니다.
+        
+        장전거래 시간: 10:00 ~ 16:00 KST (D prefix 사용)
+        그 외 시간: 18:00 ~ 07:00 KST (R prefix 사용)
+        
+        주의: 16:00-18:00, 07:00-10:00는 WebSocket 채널이 닫혀있는 시간
+        
+        Args:
+            current_time: 확인할 시간 (None이면 현재 시각)
+            
+        Returns:
+            장전거래 시간대이면 True, 미국시장 시간대이면 False
+        """
         if current_time is None:
             current_time = datetime.now()
         
-        is_night = self.should_use_night_trading(current_time)
-        is_dst = self.is_dst_period(current_time)
+        hour = current_time.hour
+        
+        # 장전거래 시간대 (10:00-16:00)
+        return 10 <= hour < 16
+    
+    def get_trading_session_info(self, current_time: Optional[datetime] = None) -> dict:
+        """상세한 거래 세션 정보를 가져옵니다.
+        
+        Returns:
+            세션 정보 딕셔너리:
+            - is_operational: WebSocket 운영시간 여부
+            - use_premarket_session: 장전거래 세션 사용 여부
+            - session_type: 'premarket_session' (10-16시) 또는 'us_hours' (18-07시)
+            - current_hour: 현재 시각
+        """
+        if current_time is None:
+            current_time = datetime.now()
+        
+        is_operational = self.is_in_websocket_operational_hours(current_time)
+        use_premarket = self.should_use_premarket_session(current_time)
+        
+        if use_premarket:
+            session_type = "premarket_session"
+        elif is_operational:
+            session_type = "us_hours"
+        else:
+            session_type = "closed"
         
         return {
-            "is_night_trading": is_night,
-            "is_dst_active": is_dst,
-            "session_type": "night" if is_night else "day",
-            "timezone": "EST" if not is_dst else "EDT",
+            "is_operational": is_operational,
+            "use_premarket_session": use_premarket,
+            "session_type": session_type,
             "current_hour": current_time.hour
         }
     
     def format_stock_code_with_session(self, code: str, current_time: Optional[datetime] = None) -> str:
-        """현재 거래 세션을 기반으로 주식 코드를 포맷합니다."""
-        is_night = self.should_use_night_trading(current_time)
-        return self.format_stock_code(code, is_night_trading=is_night)
+        """현재 거래 세션을 기반으로 주식 코드를 포맷합니다.
+        
+        Args:
+            code: 포맷할 주식 심볼
+            current_time: 확인할 시간 (None이면 현재 시각)
+            
+        Returns:
+            포맷된 주식 코드
+            
+        Raises:
+            ValueError: WebSocket 채널이 닫혀있는 시간대인 경우
+        """
+        session_info = self.get_trading_session_info(current_time)
+        
+        # WebSocket 운영시간 확인
+        if not session_info["is_operational"]:
+            raise ValueError(
+                f"WebSocket 채널이 닫혀있는 시간대입니다 (현재: {session_info['current_hour']}시). "
+                f"운영시간: 10:00-16:00 또는 18:00-07:00 (KST)"
+            )
+        
+        use_premarket = session_info["use_premarket_session"]
+        return self.format_stock_code(code, use_premarket_session=use_premarket)
     
     def parse_kis_formatted_code(self, kis_code: str) -> Optional[Tuple[str, str, str]]:
         """KIS 포맷 코드를 구성 요소로 파싱합니다.
         
         Returns:
             (심볼, 거래소, 세션_타입) 튜플 또는 유효하지 않으면 None
+            세션_타입: 'premarket_session' 또는 'us_hours'
         """
         if not kis_code:
             return None
@@ -287,7 +329,7 @@ class USMarketProvider(BaseMarketProvider):
             return None
         
         session_prefix, exchange_code, symbol = match.groups()
-        session_type = "night" if session_prefix == "D" else "day"
+        session_type = "premarket_session" if session_prefix == "D" else "us_hours"
         
         # 거래소명 역방향 조회
         exchange_name = self._reverse_lookup_exchange(exchange_code, session_type)
@@ -296,9 +338,9 @@ class USMarketProvider(BaseMarketProvider):
     
     def _reverse_lookup_exchange(self, exchange_code: str, session_type: str) -> str:
         """거래소 코드에서 거래소명을 역방향 조회합니다."""
-        if session_type == "night":
+        if session_type == "premarket_session":
             code_map = {"NAS": "NASDAQ", "NYS": "NYSE", "AMS": "AMEX"}
-        else:
+        else:  # us_hours
             code_map = {"BAQ": "NASDAQ", "BAY": "NYSE", "BAA": "AMEX"}
         
         return code_map.get(exchange_code, "UNKNOWN")

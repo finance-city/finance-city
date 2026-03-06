@@ -8,6 +8,7 @@ KIS WebSocket API를 위한 요청 패킷 구성을 처리합니다.
 from dataclasses import dataclass, asdict
 from typing import Dict, Any, List, Optional, cast
 import json
+import logging
 from datetime import datetime
 
 from core import IRequestBuilder, StockInfo, IMarketManager, ITimeCalculator
@@ -213,6 +214,9 @@ class RequestBuilderService(IRequestBuilder):
             
         Returns:
             KIS API용 포맷된 주식 코드 (예: DNASAAPL, RBAYAAPL)
+            
+        Raises:
+            ValueError: WebSocket 채널이 닫혀있는 시간대인 경우
         """
         try:
             us_provider = self._market_manager.get_market_provider("US")
@@ -224,16 +228,18 @@ class RequestBuilderService(IRequestBuilder):
                 us_provider_typed = cast(USMarketProvider, us_provider)
                 return us_provider_typed.format_stock_code_with_session(stock_code)
             else:
-                # 폴백: 수동으로 세션을 결정하고 표준 메서드 사용
-                current_time = datetime.now()
-                is_night = self._time_calculator.is_trading_hours("US", current_time)
-                return us_provider.format_stock_code(stock_code, is_night_trading=not is_night)
+                # 폴백: 기본 포맷팅 (R prefix 사용)
+                logging.warning(f"format_stock_code_with_session이 없어 기본 포맷 사용: {stock_code}")
+                return us_provider.format_stock_code(stock_code, use_premarket_session=False)
                 
+        except ValueError as e:
+            # WebSocket 채널이 닫혀있는 경우 - 상위로 전파
+            raise
         except Exception as e:
-            # 시간 계산이 실패할 경우 기본 포맷팅으로 최종 폴백
-            print(f"Warning: Using fallback formatting for {stock_code}: {e}")
+            # 기타 예상치 못한 오류 - 로깅하고 기본 포맷팅 시도
+            logging.error(f"미국 주식 코드 포맷 중 오류 ({stock_code}): {e}")
             us_provider = self._market_manager.get_market_provider("US")
-            return us_provider.format_stock_code(stock_code, is_night_trading=False)
+            return us_provider.format_stock_code(stock_code, use_premarket_session=False)
     
     def get_formatted_stock_codes(self, stocks: List[StockInfo]) -> Dict[str, List[str]]:
         """마켓별로 그룹화된 포맷된 주식 코드를 가져옵니다.

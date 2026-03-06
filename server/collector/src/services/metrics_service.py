@@ -156,6 +156,26 @@ class MetricsService:
         self.market_status.labels(market=market).set(status)
         self.logger.debug(f"Market status updated: {market} = {'Open' if is_open else 'Closed'}")
     
+    def get_market_status(self, market: str) -> int:
+        """현재 시장 상태 조회
+        
+        Args:
+            market: 시장 (krx, us)
+            
+        Returns:
+            0 (Closed) 또는 1 (Open)
+        """
+        try:
+            # Prometheus Gauge의 현재 값 조회
+            metric = self.market_status.labels(market=market)
+            # _value는 Gauge 내부 구조이므로 안전하게 접근
+            if hasattr(metric, '_value'):
+                return int(metric._value.get())
+            return 0  # 기본값
+        except Exception as e:
+            self.logger.warning(f"시장 상태 조회 실패: {e}")
+            return 0
+    
     def set_websocket_status(self, market: str, is_connected: bool) -> None:
         """WebSocket 연결 상태 설정
         

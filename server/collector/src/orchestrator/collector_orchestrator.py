@@ -184,13 +184,13 @@ class CollectorOrchestrator:
             # 종목 구독
             await self.ws_manager.subscribe_stocks(self.active_stocks)
             
-            # 시장 상태 업데이트 (구독 시작 = 시장 개장)
+            # 시장 상태는 초기에 Closed로 설정 (실제 데이터 수신 시 Open으로 변경)
             if self.krx_stocks:
-                metrics_service.set_market_status('krx', True)
-                logging.info("📊 KRX 시장 상태: Open (1)")
+                metrics_service.set_market_status('krx', False)
+                logging.info("📊 KRX 시장 상태: Closed (데이터 수신 대기 중)")
             if self.us_stocks:
-                metrics_service.set_market_status('us', True)
-                logging.info("📊 US 시장 상태: Open (1)")
+                metrics_service.set_market_status('us', False)
+                logging.info("📊 US 시장 상태: Closed (데이터 수신 대기 중)")
             
             # 데이터 핸들러 설정
             async def data_handler(data):
@@ -219,6 +219,22 @@ class CollectorOrchestrator:
         market = 'krx'  # 기본값
         
         try:
+            # 시장 식별 (TR_ID 기반)
+            tr_id = data.get("tr_id", "UNKNOWN")
+            if 'H0UN' in tr_id:  # H0UNCNT0
+                market = 'krx'
+            elif 'HDFS' in tr_id:
+                market = 'us'
+            
+            # 실제 데이터 수신 시 시장 상태를 Open으로 변경
+            # (PINGPONG 제외)
+            if tr_id != "PINGPONG":
+                # 현재 시장 상태 확인 후 변경
+                current_status = metrics_service.get_market_status(market)
+                if current_status == 0:  # Closed 상태였다면
+                    metrics_service.set_market_status(market, True)
+                    logging.info(f"📊 {market.upper()} 시장 상태: Closed → Open (실제 데이터 수신)")
+            
             # 데이터를 Redis로 발행
             if self.redis_client and self.config:
                 # Redis 연결 상태 확인
@@ -236,13 +252,6 @@ class CollectorOrchestrator:
                     logging.warning(f"메시지가 너무 큽니다 ({len(message)} bytes), 발행을 건너뜁니다")
                     metrics_service.record_redis_publish(market, False)
                     return
-                
-                # 시장 식별 (TR_ID 기반)
-                tr_id = data.get("tr_id", "UNKNOWN")
-                if 'H0UN' in tr_id:  # H0UNCNT0
-                    market = 'krx'
-                elif 'HDFS' in tr_id:
-                    market = 'us'
                 
                 # Redis publish
                 self.redis_client.publish(channel, message)

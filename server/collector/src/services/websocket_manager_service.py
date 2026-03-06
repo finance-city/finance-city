@@ -152,70 +152,94 @@ class WebSocketManagerService(IWebSocketManager):
     
     async def _subscribe_market_stocks(self, stocks: List[StockInfo], market: str) -> None:
         """특정 시장의 종목들 구독"""
+        failed_stocks = []
+        
         try:
             # RequestBuilder를 사용한 구독 요청 생성
             # 단일 종목씩 처리하는 방식으로 변경
             for stock in stocks:
-                # 단일 종목 리스트로 요청 생성
-                single_stock = [stock]
-                
-                # RequestBuilder의 올바른 메서드 사용
-                request_data = self._request_builder.build_subscription_request(single_stock)
-                
-                # 시장별로 요청 데이터 처리
-                for market_key, market_request in request_data.items():
-                    if market_request and 'packet' in market_request:
-                        # 단일 packet 처리
-                        packet = market_request['packet']
-                        
-                        # RequestPacket 객체를 딕셔너리로 변환
-                        if hasattr(packet, 'to_json_packet'):
-                            # RequestPacket의 to_json_packet 메서드 사용
-                            message = packet.to_json_packet()
-                        else:
-                            # 수동으로 JSON 변환
-                            packet_dict = {
-                                'header': {
-                                    'approval_key': packet.header.approval_key,
-                                    'custtype': packet.header.custtype,
-                                    'tr_type': packet.header.tr_type,
-                                    'content-type': packet.header.content_type
-                                },
-                                'body': {
-                                    'input': {
-                                        'tr_id': packet.body.input.tr_id,
-                                        'tr_key': packet.body.input.tr_key
+                try:
+                    # 단일 종목 리스트로 요청 생성
+                    single_stock = [stock]
+                    
+                    # RequestBuilder의 올바른 메서드 사용
+                    request_data = self._request_builder.build_subscription_request(single_stock)
+                    
+                    # 시장별로 요청 데이터 처리
+                    for market_key, market_request in request_data.items():
+                        if market_request and 'packet' in market_request:
+                            # 단일 packet 처리
+                            packet = market_request['packet']
+                            
+                            # RequestPacket 객체를 딕셔너리로 변환
+                            if hasattr(packet, 'to_json_packet'):
+                                # RequestPacket의 to_json_packet 메서드 사용
+                                message = packet.to_json_packet()
+                            else:
+                                # 수동으로 JSON 변환
+                                packet_dict = {
+                                    'header': {
+                                        'approval_key': packet.header.approval_key,
+                                        'custtype': packet.header.custtype,
+                                        'tr_type': packet.header.tr_type,
+                                        'content-type': packet.header.content_type
+                                    },
+                                    'body': {
+                                        'input': {
+                                            'tr_id': packet.body.input.tr_id,
+                                            'tr_key': packet.body.input.tr_key
+                                        }
                                     }
                                 }
-                            }
-                            message = json.dumps(packet_dict) + '\n'
-                        
-                        # 간소화된 구독 요청 로그
-                        tr_id = packet.body.input.tr_id
-                        market_type = "KRX" if tr_id.startswith("H0") else "US"
-                        logging.debug(f"📡 [{market_type}] {stock.code} 구독 요청")
-                        
-                        # 연결 상태 확인 후 전송
-                        if self._connection and self.is_connected():
-                            await self._connection.send(message)
-                        else:
-                            logging.warning(f"WebSocket 연결이 끊어진 상태에서 {stock.code} 구독 요청 실패")
-                            continue
+                                message = json.dumps(packet_dict) + '\n'
                             
-                        await asyncio.sleep(0.1)  # KIS API 안정성
-                        
-                        # 데이터 매핑 정보 미리 초기화
-                        columns = self._get_columns_for_tr_id(tr_id)
-                        self._data_map[tr_id] = {
-                            "columns": columns,
-                            "encrypt": "N",
-                            "key": None,
-                            "iv": None
-                        }
+                            # 간소화된 구독 요청 로그
+                            tr_id = packet.body.input.tr_id
+                            market_type = "KRX" if tr_id.startswith("H0") else "US"
+                            logging.debug(f"📡 [{market_type}] {stock.code} 구독 요청")
+                            
+                            # 연결 상태 확인 후 전송
+                            if self._connection and self.is_connected():
+                                await self._connection.send(message)
+                            else:
+                                logging.warning(f"WebSocket 연결이 끊어진 상태에서 {stock.code} 구독 요청 실패")
+                                failed_stocks.append(stock.code)
+                                continue
+                                
+                            await asyncio.sleep(0.1)  # KIS API 안정성
+                            
+                            # 데이터 매핑 정보 미리 초기화
+                            columns = self._get_columns_for_tr_id(tr_id)
+                            self._data_map[tr_id] = {
+                                "columns": columns,
+                                "encrypt": "N",
+                                "key": None,
+                                "iv": None
+                            }
                 
+                except ValueError as ve:
+                    # WebSocket 채널이 닫혀있는 경우 (운영시간 외)
+                    if "채널이 닫혀있는" in str(ve) or "WebSocket" in str(ve):
+                        logging.warning(f"⚠️  [{market}] {stock.code}: {ve}")
+                        failed_stocks.append(stock.code)
+                    else:
+                        # 기타 ValueError
+                        logging.error(f"❌ [{market}] {stock.code} 구독 실패: {ve}")
+                        failed_stocks.append(stock.code)
+                except Exception as e:
+                    logging.error(f"❌ [{market}] {stock.code} 구독 실패: {e}")
+                    failed_stocks.append(stock.code)
+            
+            # 구독 실패 요약
+            if failed_stocks:
+                logging.warning(
+                    f"⚠️  {market} 시장: {len(failed_stocks)}개 종목 구독 실패 "
+                    f"({', '.join(failed_stocks[:3])}{'...' if len(failed_stocks) > 3 else ''})"
+                )
+            
         except Exception as e:
             logging.error(f"❌ {market} 시장 구독 실패: {e}")
-            raise
+            # 전체 실패해도 예외를 던지지 않음 (soft error)
     
     async def unsubscribe_stocks(self, stocks: List[StockInfo]) -> None:
         """종목들의 실시간 데이터 구독 해제"""
@@ -478,12 +502,30 @@ class WebSocketManagerService(IWebSocketManager):
                     # 오류 응답 처리
                     if body.get('rt_cd') != '0':
                         error_msg = body.get('msg1', 'Unknown error')
-                        logging.error(f"❌ 구독 실패: {error_msg} (tr_id: {tr_id})")
+                        error_code = body.get('rt_cd')
                         
-                        # 'invalid approval' 오류인 경우 특별 처리
-                        if 'invalid approval' in error_msg.lower():
+                        # 채널 닫힘 오류인지 확인
+                        is_channel_closed = 'channel' in error_msg.lower() and 'closed' in error_msg.lower()
+                        is_invalid_approval = 'invalid approval' in error_msg.lower()
+                        
+                        if is_channel_closed:
+                            # 채널이 닫혀있는 경우 - soft error (경고만)
+                            symbol = tr_key[-4:] if tr_key and len(tr_key) > 4 else tr_key
+                            market_type = "KRX" if tr_id and tr_id.startswith("H0") else "US"
+                            logging.warning(
+                                f"⚠️  [{market_type}] {symbol} 구독 실패: {error_msg} "
+                                f"(운영시간 외이거나 채널이 닫혀있음, 다른 구독은 계속 진행)"
+                            )
+                        elif is_invalid_approval:
+                            # 승인 키 만료 - 재발급 시도 (기존 로직)
+                            logging.error(f"❌ 승인 키 오류: {error_msg} (tr_id: {tr_id})")
                             logging.warning("⚠️  승인 키가 만료되었습니다. 재발급 시도...")
                             await self._handle_invalid_approval(tr_id, tr_key)
+                        else:
+                            # 기타 오류 - 로깅만 하고 계속 진행
+                            logging.error(
+                                f"❌ 구독 실패: {error_msg} (tr_id: {tr_id}, rt_cd: {error_code})"
+                            )
                     
             # 기타 시스템 응답은 무시
             
