@@ -73,11 +73,10 @@ class TradingConfig:
                 "KRX": MarketConfig(
                     name="KRX",
                     timezone="Asia/Seoul",
-                    regular_hours=(time(9, 0), time(15, 30)),
-                    after_hours=(time(16, 0), time(18, 0)),
+                    regular_hours=(time(8, 0), time(20, 0)),  # 통합 시간 08:00 ~ 20:00
+                    after_hours=None,  # 더 이상 구분하지 않음
                     tr_ids={
-                        "regular": "H0STCNT0",
-                        "after": "H0NXCNT0"
+                        "unified": "H0UNCNT0"  # 통합 TR_ID
                     }
                 ),
                 "US": MarketConfig(

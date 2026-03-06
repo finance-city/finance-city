@@ -193,7 +193,7 @@ class WebSocketManagerService(IWebSocketManager):
                         # 간소화된 구독 요청 로그
                         tr_id = packet.body.input.tr_id
                         market_type = "KRX" if tr_id.startswith("H0") else "US"
-                        logging.info(f"📡 [{market_type}] {stock.code} 구독 요청")
+                        logging.debug(f"📡 [{market_type}] {stock.code} 구독 요청")
                         
                         # 연결 상태 확인 후 전송
                         if self._connection and self.is_connected():
@@ -349,7 +349,7 @@ class WebSocketManagerService(IWebSocketManager):
                 }
                 
                 # 시장별 데이터 매핑
-                if tr_id in ["H0STCNT0", "H0NXCNT0"]:  # KRX 주식
+                if tr_id == "H0UNCNT0":  # KRX 통합 (정규 + 시간외)
                     stock_code = row_data.get("유가증권_단축_종목코드", "N/A")
                     current_price = row_data.get("주식_현재가", "N/A")
                     change_rate = row_data.get("전일_대비율", "N/A")
@@ -369,8 +369,7 @@ class WebSocketManagerService(IWebSocketManager):
                     if stock_code != "N/A":
                         metrics_service.record_tick('krx', str(stock_code))
                     
-                    session_type = "정규장" if tr_id == "H0STCNT0" else "애프터마켓"
-                    logging.info(f"📈 [KRX-{session_type}] {stock_code}: {current_price}원 ({change_rate}%)")
+                    logging.debug(f"📈 [KRX] {stock_code}: {current_price}원 ({change_rate}%)")
                     
                 elif tr_id == "HDFSCNT0":  # 해외주식
                     stock_code = row_data.get("SYMB", "N/A")
@@ -454,7 +453,7 @@ class WebSocketManagerService(IWebSocketManager):
                     symbol = tr_key[-4:] if tr_key and len(tr_key) > 4 else tr_key
                     market_type = "KRX" if tr_id.startswith("H0") else "US"
                     
-                    logging.info(f"✅ [{market_type}] {symbol} 구독 성공")
+                    logging.debug(f"✅ [{market_type}] {symbol} 구독 성공")
                     
                     # 암호화 키 정보 추출 및 업데이트
                     output = body.get('output', {})
@@ -527,25 +526,13 @@ class WebSocketManagerService(IWebSocketManager):
     def _get_columns_for_tr_id(self, tr_id: str) -> List[str]:
         """TR_ID에 해당하는 컬럼 정보 반환"""
         try:
-            if tr_id == "H0STCNT0":  # KRX 정규장 주식
-                return [
-                    "유가증권_단축_종목코드", "주식_현재가", "전일_대비_기호", "전일_대비", "전일_대비율", 
-                    "가중_평균_주식_가격", "주식_시가", "주식_최고가", "주식_최저가", "매도호가1", 
-                    "매수호가1", "체결거래량", "누적거래량", "누적거래대금", "매도체결건수", "매수체결건수",
-                    "순매수체결건수", "체결강도", "총_매도_수량", "총_매수_수량", "체결구분", "매수비율",
-                    "전일_거래량_대비_등락율", "시가_시간", "시가대비구분", "시가대비", "최고가_시간",
-                    "고가대비구분", "고가대비", "최저가_시간", "저가대비구분", "저가대비", "영업_일자",
-                    "신_장운영_구분코드", "거래정지_여부", "매도호가잔량", "매수호가잔량", "총_매도호가_잔량",
-                    "총_매수호가_잔량", "거래량_회전율", "전일_동시간_누적거래량", "전일_동시간_누적거래량_비율",
-                    "시간_구분_코드", "임의종료구분코드", "정적VI발동기준가"
-                ]
-            elif tr_id == "H0NXCNT0":  # KRX 애프터마켓 주식
+            if tr_id == "H0UNCNT0":  # KRX 통합 (정규장 + 시간외)
                 return [
                     "유가증권_단축_종목코드", "주식_체결_시간", "주식_현재가", "전일_대비_기호", "전일_대비", 
                     "전일_대비율", "가중_평균_주식_가격", "주식_시가", "주식_최고가", "주식_최저가", 
                     "매도호가1", "매수호가1", "체결거래량", "누적거래량", "누적거래대금", "매도체결건수", 
                     "매수체결건수", "순매수체결건수", "체결강도", "총_매도_수량", "총_매수_수량", 
-                    "체결구분", "매수비율", "전일_거래량_대비_등락율", "시가_시간", "시가대비구분", 
+                    "체결구분코드", "매수비율", "전일_거래량_대비_등락율", "시가_시간", "시가대비구분", 
                     "시가대비", "최고가_시간", "고가대비구분", "고가대비", "최저가_시간", "저가대비구분", 
                     "저가대비", "영업_일자", "신_장운영_구분코드", "거래정지_여부", "매도호가잔량", 
                     "매수호가잔량", "총_매도호가_잔량", "총_매수호가_잔량", "거래량_회전율", 

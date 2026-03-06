@@ -6,7 +6,6 @@ Market Manager Service
 """
 
 from typing import Dict, List, Set, Optional
-from datetime import datetime, time
 import logging
 
 from core import IMarketManager, IMarketProvider, StockInfo, MarketSession
@@ -24,16 +23,9 @@ class MarketManagerService(IMarketManager):
     def _initialize_providers(self) -> None:
         """시장 제공자들 초기화"""
         try:
-            # 현재 시간 확인 (간소화된 로그)
-            current_time = datetime.now().time()
-            
-            # KRX (한국 주식시장) 제공자 - 시간대에 따라 결정
-            if self._is_after_hours_krx(current_time):
-                krx_provider = KRXMarketProvider(use_after_hours=True)
-                logging.info(f"🌙 KRX 애프터마켓 모드 ({krx_provider.get_tr_id()})")
-            else:
-                krx_provider = KRXMarketProvider(use_after_hours=False) 
-                logging.info(f"☀️ KRX 정규장 모드 ({krx_provider.get_tr_id()})")
+            # KRX (한국 주식시장) 제공자 - 통합 API 사용 (장중 + 장외)
+            krx_provider = KRXMarketProvider()
+            logging.info(f"🔄 KRX 통합 모드 (H0UNCNT0) - 정규장 + 시간외 거래")
                 
             self._providers["KRX"] = krx_provider
             self._providers["KOSPI"] = krx_provider
@@ -51,40 +43,6 @@ class MarketManagerService(IMarketManager):
         except Exception as e:
             logging.error(f"❌ MarketManagerService 초기화 실패: {e}")
             raise
-    
-    def _is_after_hours_krx(self, current_time: time) -> bool:
-        """KRX 애프터마켓 시간 여부 확인
-        
-        Args:
-            current_time: 현재 시간
-            
-        Returns:
-            bool: 애프터마켓 시간(16:00-18:00)이면 True
-        """
-        # 애프터마켓: 16:00 ~ 18:00
-        after_start = time(16, 0)
-        after_end = time(18, 0)
-        
-        # 정규장: 09:00 ~ 15:30 
-        regular_start = time(9, 0)
-        regular_end = time(15, 30)
-        
-        # 애프터마켓 시간인지 확인
-        is_after_hours = after_start <= current_time <= after_end
-        
-        # 정규장 시간인지 확인
-        is_regular_hours = regular_start <= current_time <= regular_end
-        
-        if is_after_hours:
-            logging.info(f"📅 애프터마켓 시간 감지: {current_time}")
-            return True
-        elif is_regular_hours:
-            logging.info(f"📅 정규장 시간 감지: {current_time}")
-            return False
-        else:
-            # 장외 시간 (18:00 ~ 09:00) - 기본적으로 정규장 설정 사용
-            logging.info(f"📅 장외 시간 감지: {current_time} (정규장 설정 사용)")
-            return False
     
     def get_supported_markets(self) -> Set[str]:
         """지원되는 시장 이름들 반환"""

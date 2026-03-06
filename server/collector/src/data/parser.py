@@ -31,8 +31,7 @@ class KISDataParser(IDataParser):
         
         # 마켓 탐지를 위한 알려진 TR_ID 패턴
         self._tr_id_market_map = {
-            'H0STCNT0': 'KRX',      # KRX 정규 거래
-            'H0NXCNT0': 'KRX',      # KRX 시간외 거래
+            'H0UNCNT0': 'KRX',      # KRX 통합 (정규 + 시간외)
             'HDFSCNT0': 'US'        # US 마켓
         }
     

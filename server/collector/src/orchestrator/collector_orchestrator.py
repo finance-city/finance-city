@@ -223,7 +223,7 @@ class CollectorOrchestrator:
                 
                 # 시장 식별 (TR_ID 기반)
                 tr_id = data.get("tr_id", "UNKNOWN")
-                if 'H0ST' in tr_id or 'H0NX' in tr_id:
+                if 'H0UN' in tr_id:  # H0UNCNT0
                     market = 'krx'
                 elif 'HDFS' in tr_id:
                     market = 'us'
@@ -237,7 +237,8 @@ class CollectorOrchestrator:
                 # 간단한 로깅 (통일된 필드명 사용)
                 # 통일된 데이터 구조에서 종목코드 가져오기
                 code = data.get("data", {}).get("code", data.get("stock_code", "UNKNOWN"))
-                logging.debug(f"데이터 발행: {tr_id}[{code}] → {channel}")
+                price = data.get("data", {}).get("price", data.get("current_price", 0))
+                logging.info(f"✅ 발행: {tr_id}[{code}] {price}원 → {channel}")
                 
         except Exception as e:
             logging.error(f"실시간 데이터 처리 실패: {e}")

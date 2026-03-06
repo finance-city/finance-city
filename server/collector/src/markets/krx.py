@@ -17,16 +17,16 @@ class KRXMarketProvider(BaseMarketProvider):
     
     @classmethod
     def create_default_config(cls) -> MarketConfig:
-        """KRX 마켓의 기본 설정을 생성합니다."""
+        """KRX 마켓의 기본 설정을 생성합니다 (장중/장외 통합)."""
         
-        # KRX 정규 세션: 09:00-15:30
-        regular_session = MarketSession(
-            start_time="09:00",
-            end_time="15:30",
+        # 국내 주식 통합 세션(KRX+NXT): 08:00-20:00 (정규 + 시간외)
+        unified_session = MarketSession(
+            start_time="08:00",
+            end_time="20:00",
             timezone="Asia/Seoul"
         )
         
-        # KRX 필드 설정
+        # 필드 설정
         fields = FieldConfig(
             fields={
                 "stock_code": "0",
@@ -54,8 +54,8 @@ class KRXMarketProvider(BaseMarketProvider):
         
         return MarketConfig(
             name="KRX",
-            tr_id="H0STCNT0",  # 정규 거래 시간
-            session=regular_session,
+            tr_id="H0UNCNT0",  # 통합 API (장중 + 장외)
+            session=unified_session,
             fields=fields,
             exchange_codes={
                 "KOSPI": "J",
@@ -63,53 +63,15 @@ class KRXMarketProvider(BaseMarketProvider):
             }
         )
     
-    @classmethod
-    def create_after_hours_config(cls) -> MarketConfig:
-        """KRX 마켓의 시간외 거래 설정을 생성합니다."""
-        
-        # KRX 시간외 거래 세션: 16:00-18:00
-        after_session = MarketSession(
-            start_time="16:00",
-            end_time="18:00", 
-            timezone="Asia/Seoul"
-        )
-        
-        # 정규 세션과 동일한 필드 설정
-        fields = cls.create_default_config().fields
-        
-        return MarketConfig(
-            name="KRX_AFTER",
-            tr_id="H0NXCNT0",  # 시간외 거래
-            session=after_session,
-            fields=fields,
-            exchange_codes={
-                "KOSPI": "J",
-                "KOSDAQ": "Q"
-            }
-        )
-    
-    def __init__(self, use_after_hours: bool = False):
-        """KRX 마켓 프로바이더를 초기화합니다.
-        
-        Args:
-            use_after_hours: 시간외 거래 세션 설정을 사용할지 여부
-        """
-        if use_after_hours:
-            config = self.create_after_hours_config()
-        else:
-            config = self.create_default_config()
-            
+    def __init__(self):
+        """KRX 마켓 프로바이더를 초기화합니다."""
+        config = self.create_default_config()
         super().__init__(config)
-        self._use_after_hours = use_after_hours
-        
-    def is_after_hours_mode(self) -> bool:
-        """이 프로바이더가 시간외 거래 모드인지 확인합니다."""
-        return self._use_after_hours
     
     def parse_stock_code(self, code: str) -> Optional[str]:
-        """KRX 종목 코드를 파싱하고 검증합니다.
+        """종목 코드를 파싱하고 검증합니다.
         
-        KRX 코드는 일반적으로 6자리 숫자입니다 (예: 삼성전자의 경우 005930).
+        국내 주식 종목 코드는 일반적으로 6자리 숫자입니다 (예: 삼성전자의 경우 005930).
         
         Args:
             code: 파싱할 종목 코드
@@ -136,7 +98,7 @@ class KRXMarketProvider(BaseMarketProvider):
         
         Args:
             code: 포맷할 종목 코드
-            is_night_trading: KRX에서는 사용되지 않음
+            is_night_trading: 국내에서는 사용되지 않음
             
         Returns:
             포맷된 종목 코드
@@ -176,23 +138,3 @@ class KRXMarketProvider(BaseMarketProvider):
         elif self.is_kosdaq_stock(code):
             return "KOSDAQ"
         return None
-    
-    def supports_after_hours(self) -> bool:
-        """이 프로바이더가 시간외 거래를 지원하는지 확인합니다."""
-        return True
-    
-    def switch_to_after_hours(self) -> None:
-        """시간외 거래 설정으로 전환합니다."""
-        if not self._use_after_hours:
-            self._config = self.create_after_hours_config()
-            self._tr_id = self._config.tr_id
-            self._session = self._config.session
-            self._use_after_hours = True
-    
-    def switch_to_regular_hours(self) -> None:
-        """정규 거래 시간 설정으로 전환합니다."""
-        if self._use_after_hours:
-            self._config = self.create_default_config()
-            self._tr_id = self._config.tr_id
-            self._session = self._config.session
-            self._use_after_hours = False

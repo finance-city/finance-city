@@ -25,8 +25,7 @@ class TimeCalculatorService(ITimeCalculator):
         
         self._market_hours = {
             "KRX": {
-                "regular": {"start": "09:00", "end": "15:30"},
-                "after_hours": {"start": "16:00", "end": "18:00"}
+                "unified": {"start": "08:00", "end": "20:00"}  # 통합 거래 시간
             },
             "US": {
                 "regular": {"start": "09:30", "end": "16:00"}  # 미국 동부 시간
@@ -132,21 +131,12 @@ class TimeCalculatorService(ITimeCalculator):
                 return True
         
         elif market == "KRX":
-            # 정규 및 시간외 거래 세션 모두 확인
-            regular_hours = market_config.get("regular", {})
-            after_hours = market_config.get("after_hours", {})
+            # 통합 거래 세션 확인 (08:00-20:00)
+            unified_hours = market_config.get("unified", {})
             
-            # 정규 시간 확인 (09:00-15:30)
-            if regular_hours:
-                start_time = time.fromisoformat(regular_hours["start"])
-                end_time = time.fromisoformat(regular_hours["end"])
-                if start_time <= current_time <= end_time:
-                    return True
-            
-            # 시간외 거래 확인 (16:00-18:00)
-            if after_hours:
-                start_time = time.fromisoformat(after_hours["start"])
-                end_time = time.fromisoformat(after_hours["end"])
+            if unified_hours:
+                start_time = time.fromisoformat(unified_hours["start"])
+                end_time = time.fromisoformat(unified_hours["end"])
                 if start_time <= current_time <= end_time:
                     return True
             
